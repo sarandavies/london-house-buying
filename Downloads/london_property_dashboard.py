@@ -9,7 +9,7 @@ import random
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Property Buy vs Rent Calculator", layout="wide")
-st.title("🏠 Should You Buy a House in London?... tl;dr No 🥲")
+st.title("🏠 Should You Buy a House in London?... tl;dr generally, no 🥲")
 st.markdown("""
 This app helps you compare buying vs renting.
 It covers costs, risks, and potential gains so you can play out different scenarios.
@@ -47,7 +47,7 @@ def calculate_stamp_duty(price):
 st.header("1. Property & Loan Details")
 
 house_price = st.slider("Total House Price (£)", 100_000, 2_000_000, 600_000, step=10_000)
-deposit = st.slider("Deposit (£)", 0, house_price, 100_000, step=10_000)
+deposit = st.slider("Deposit (£)", 0, house_price, 60_000, step=10_000)
 base_interest_rate = st.slider("Mortgage Interest Rate (%)", 0.5, 10.0, 4.25, step=0.05)
 term_years = st.slider("Loan Term (years)", 5, 40, 25)
 
