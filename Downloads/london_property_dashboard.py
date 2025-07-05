@@ -178,6 +178,8 @@ else:
 # --- MONTHLY PAYMENT ---
 monthly_rate = risk_interest_rate / 100 / 12
 monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount)
+
+st.header("🪙 Monthly Mortgage Payment")
 st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 
 # --- CAPITAL APPRECIATION ---
@@ -210,7 +212,9 @@ sale_value *= (1 + renovation_uplift / 100)
 sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 sale_fees = sale_value * (sale_fee_rate / 100)
 
-# --- Calculate interest paid and remaining loan ---
+gross_proceeds = sale_value - sale_fees - loan_amount
+
+# --- Calculate interest paid over years held ---
 principal_remaining = loan_amount
 total_interest_paid = 0
 
@@ -220,20 +224,17 @@ for _ in range(sale_year * 12):
     total_interest_paid += interest_month
     principal_remaining -= principal_payment
     if principal_remaining <= 0:
-        principal_remaining = 0
         break
 
-# Correct calculation: subtract remaining balance
-gross_proceeds = sale_value - sale_fees - principal_remaining
-
+# Calculate net cash after sale
 net_proceeds = gross_proceeds - fees_total
-final_cash_after_sale = net_proceeds
+final_cash_after_sale = net_proceeds - total_interest_paid
 
 # ROI based on deposit
 roi = (final_cash_after_sale - deposit) / deposit if deposit > 0 else 0.0
 
 irr_before_tax = npf.irr(
-    [-deposit - fees_total] + [0] * (sale_year - 1) + [gross_proceeds]
+    [-deposit - fees_total] + [0] * (sale_year - 1) + [net_proceeds]
 )
 
 # --- UNRECOVERABLE COSTS ---
@@ -265,7 +266,7 @@ with col2:
         "Alternative Annual Investment Return (%)",
         0.0, 10.0, 4.0, step=0.5
     )
-    invested_alt = deposit * ((1 + alt_investment_return / 100) ** sale_year)
+    invested_alt = (deposit) - deposit * ((1 + alt_investment_return / 100) ** sale_year)
 
     st.metric("Potential Alternative Investment (£)", f"£{invested_alt:,.0f}")
 
@@ -281,7 +282,7 @@ summary_text = f"""
 - **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
 - **ROI based on cash invested:** {roi*100:.2f}%
-- **Potential alternative investment value:** £{invested_alt:,.0f}
+- **Potential alternative investment value change:** £{invested_alt:,.0f}
 
 **Net financial outcome vs renting:** {"Up" if difference_vs_rent > 0 else "Down"} by £{abs(difference_vs_rent):,.0f}
 """
@@ -306,5 +307,3 @@ st.line_chart(historical.set_index("End Year")["London Return %"])
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
-
-
