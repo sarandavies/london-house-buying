@@ -9,9 +9,9 @@ import random
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Property Buy vs Rent Calculator", layout="wide")
-st.title("🏠 Should You Buy a House in London?... tl;dr generally, no 🥲")
+st.title("🏠 Should You Buy a House in London?... tl;dr generally no 🥲")
 st.markdown("""
-This app helps you compare buying vs renting.
+This app helps you compare buying vs renting.  
 It covers costs, risks, and potential gains so you can play out different scenarios.
 """)
 
@@ -47,38 +47,29 @@ def calculate_stamp_duty(price):
 st.header("1. Property & Loan Details")
 
 house_price = st.slider("Total House Price (£)", 100_000, 2_000_000, 600_000, step=10_000)
-deposit = st.slider("Deposit (£)", 0, house_price, 60_000, step=10_000)
+deposit = st.slider("Deposit (£)", 0, house_price, 100_000, step=10_000)
 base_interest_rate = st.slider("Mortgage Interest Rate (%)", 0.5, 10.0, 4.25, step=0.05)
 term_years = st.slider("Loan Term (years)", 5, 40, 25)
 
 loan_amount = house_price - deposit
 n_payments = term_years * 12
 
-# Estimate monthly mortgage payment BEFORE risk adjustments
-base_monthly_rate = base_interest_rate / 100 / 12
-base_monthly_payment = npf.pmt(base_monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
-
-st.metric(
-    "Estimated Monthly Mortgage Payment (estimate subject to market volatility)",
-    f"£{base_monthly_payment:,.0f}"
-)
-
 # --- RENTAL COMPARISON ---
 st.header("2. Rental Market Comparison")
 
 st.markdown("""
-**Why Gross and Net Yields Matter:**
-
-- Landlords aim to earn a net profit (net yield) after costs.
-- The gap between gross and net yield shows the hidden costs of owning.
-- Even renters care about yields because they influence:
-    - how high rents might go
-    - whether renting is truly cheaper than buying
+While buying can protect you from certain costs, renting can also be a safe haven:
+- No maintenance or repair costs
+- Flexibility to leave if prices drop
+- However, rent may increase over time.
 """)
 
-gross_yield = st.slider("Gross Rental Yield (%)", 1.0, 10.0, 4.5)
-net_yield = st.slider("Net Rental Yield (%)", 0.5, 6.0, 2.5)
-rent_monthly = st.slider("Monthly Rent (£)", 500, 5000, 2250, step=50)
+rent_monthly = st.slider("Current Monthly Rent (£)", 500, 5000, 2250, step=50)
+
+rent_growth_rate = st.slider(
+    "Expected Annual Rent Increase (%)",
+    -2.0, 10.0, 3.0, step=0.1
+)
 
 # --- FEES ---
 st.header("3. Buying Costs & Fees")
@@ -184,10 +175,10 @@ else:
     appreciation_rate_adj = 0
     risk_interest_rate = base_interest_rate
 
-# --- MONTHLY PAYMENT AFTER RISK ---
+# --- MONTHLY PAYMENT ---
 monthly_rate = risk_interest_rate / 100 / 12
-monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
-st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
+monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount)
+st.metric("Estimated Monthly Mortgage Payment", f"£{monthly_payment:,.0f} (subject to market volatility)")
 
 # --- CAPITAL APPRECIATION ---
 st.header("5. Property Appreciation & ROI")
@@ -219,7 +210,7 @@ sale_fees = sale_value * (sale_fee_rate / 100)
 
 gross_proceeds = sale_value - sale_fees - loan_amount
 
-# --- Calculate interest paid over years held ---
+# Calculate interest paid over actual hold period
 principal_remaining = loan_amount
 total_interest_paid = 0
 
@@ -231,7 +222,6 @@ for _ in range(sale_year * 12):
     if principal_remaining <= 0:
         break
 
-# Calculate net cash after sale
 net_proceeds = gross_proceeds - fees_total
 final_cash_after_sale = net_proceeds - total_interest_paid
 
@@ -241,14 +231,21 @@ irr_before_tax = npf.irr(
     [-deposit - fees_total] + [0] * (sale_year - 1) + [net_proceeds]
 )
 
+# --- RENT COST WITH GROWTH ---
+total_rent_cost = 0
+annual_rent = rent_monthly * 12
+
+for year in range(1, sale_year + 1):
+    annual_rent *= (1 + rent_growth_rate / 100)
+    total_rent_cost += annual_rent
+
 # --- UNRECOVERABLE COSTS ---
 st.header("6. Unrecoverable Cost Comparison")
 
 mortgage_unrecoverable = total_interest_paid + fees_total
-rent_unrecoverable = rent_monthly * 12 * sale_year * (1 - (net_yield / gross_yield))
 
 st.metric("Unrecoverable Cost of Mortgage (£)", f"£{mortgage_unrecoverable:,.0f}")
-st.metric("Unrecoverable Cost of Renting (£)", f"£{rent_unrecoverable:,.0f}")
+st.metric("Total Rent Paid Over Period (£)", f"£{total_rent_cost:,.0f}")
 
 # --- PROPERTY METRICS ---
 st.header("7. Property Financial Metrics")
@@ -277,7 +274,7 @@ with col2:
 # --- SUMMARY ---
 st.header("8. Plain-English Summary")
 
-difference_vs_rent = final_cash_after_sale - rent_unrecoverable
+difference_vs_rent = final_cash_after_sale - total_rent_cost
 
 summary_text = f"""
 - **Buying costs (fees, renovations, maintenance):** £{fees_total:,.0f}
@@ -286,6 +283,7 @@ summary_text = f"""
 - **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
 - **ROI based on cash invested:** {roi*100:.2f}%
+- **Total rent paid over same period (with growth):** £{total_rent_cost:,.0f}
 - **Potential alternative investment value:** £{invested_alt:,.0f}
 
 **Net financial outcome vs renting:** {"Up" if difference_vs_rent > 0 else "Down"} by £{abs(difference_vs_rent):,.0f}
