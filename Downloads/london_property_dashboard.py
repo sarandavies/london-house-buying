@@ -274,7 +274,8 @@ with col2:
 # --- SUMMARY ---
 st.header("8. Plain-English Summary")
 
-difference_vs_rent = final_cash_after_sale - total_rent_cost
+difference_vs_rent = total_rent_cost - final_cash_after_sale
+
 
 summary_text = f"""
 - **Buying costs (fees, renovations, maintenance):** £{fees_total:,.0f}
