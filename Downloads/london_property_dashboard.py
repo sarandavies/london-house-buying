@@ -9,7 +9,7 @@ import random
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Property Buy vs Rent Calculator", layout="wide")
-st.title("🏠 Should You Buy a House in London?... tl;dr generally, no 🥲")
+st.title("🏠 Should You Buy a House in London?")
 st.markdown("""
 This app helps you compare buying vs renting.
 
