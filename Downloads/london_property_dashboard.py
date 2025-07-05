@@ -13,9 +13,9 @@ st.markdown("""
 This app helps you compare buying vs renting.
 
 It calculates:
-- your true cash left after buying
+- your cash left after buying
 - total rent paid over time
-- a clear, single difference between the two options
+- a clear difference between the two options
 """)
 
 # --- HELPER FUNCTIONS ---
@@ -93,7 +93,6 @@ sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 # Calculate sale price
 sale_value = house_price * ((1 + appreciation_rate / 100) ** sale_year)
 sale_value *= (1 + renovation_uplift / 100)
-
 sale_fees = sale_value * (sale_fee_rate / 100)
 
 # --- MORTGAGE CALCULATIONS ---
@@ -124,14 +123,13 @@ buying_costs = (
 )
 
 gross_proceeds = sale_value - sale_fees - principal_remaining
-
-net_cash_from_sale = gross_proceeds - buying_costs - total_interest_paid
+net_cash_from_sale = gross_proceeds - total_interest_paid - buying_costs
 
 roi = (net_cash_from_sale - deposit) / deposit if deposit > 0 else 0.0
 
 irr_before_tax = npf.irr(
     [-deposit - buying_costs] + [0] * (sale_year - 1) + [gross_proceeds]
-)
+) if deposit > 0 else 0.0
 
 # --- RENT CALCULATION ---
 total_rent_paid = 0
@@ -141,16 +139,18 @@ for year in range(sale_year):
     total_rent_paid += current_rent * 12
     current_rent *= (1 + rent_growth / 100)
 
-# --- COMPARISON ---
-difference = net_cash_from_sale - total_rent_paid
+# --- TRUE COST COMPARISON ---
+total_cost_of_buying = -net_cash_from_sale  # because a negative net_cash_from_sale is a cost
+difference = total_rent_paid - total_cost_of_buying
 
 # --- RESULTS ---
 st.header("6. Results")
 
 st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
-st.metric("Net Cash After Buying (sale proceeds minus all costs)", f"£{net_cash_from_sale:,.0f}")
+st.metric("Gross Proceeds After Sale", f"£{gross_proceeds:,.0f}")
+st.metric("Net Cash After Buying (sale proceeds minus costs)", f"£{net_cash_from_sale:,.0f}")
 st.metric("Total Rent Paid Over Period", f"£{total_rent_paid:,.0f}")
-st.metric("Difference (Buying minus Renting)", f"£{difference:,.0f}")
+st.metric("Difference (Renting cost minus Buying cost)", f"£{difference:,.0f}")
 
 # --- SUMMARY ---
 st.header("7. Plain-English Summary")
@@ -158,18 +158,18 @@ st.header("7. Plain-English Summary")
 if net_cash_from_sale >= 0:
     net_text = f"Buying leaves you with £{net_cash_from_sale:,.0f} in cash after all costs and interest."
 else:
-    net_text = f"Buying results in a loss of £{abs(net_cash_from_sale):,.0f} after all costs and interest."
+    net_text = f"Buying results in a net loss of £{abs(net_cash_from_sale):,.0f} after all costs and interest."
 
 if difference > 0:
-    compare_text = f"✅ Buying is £{difference:,.0f} better than renting over {sale_year} years."
+    compare_text = f"✅ Renting is cheaper by £{difference:,.0f} over {sale_year} years."
 else:
-    compare_text = f"❌ Renting is £{abs(difference):,.0f} cheaper than buying over {sale_year} years."
+    compare_text = f"✅ Buying is cheaper than renting by £{abs(difference):,.0f} over {sale_year} years."
 
 summary_text = f"""
 - **Buying costs (stamp duty, fees, renovations, maintenance):** £{buying_costs:,.0f}
 - **Total interest paid over {sale_year} years:** £{total_interest_paid:,.0f}
 - **Gross proceeds from selling house:** £{gross_proceeds:,.0f}
-- **Net cash after buying:** {net_text}
+- **Net cash result from buying:** {net_text}
 - **Total rent paid over same period:** £{total_rent_paid:,.0f}
 - **Estimated IRR on buying:** {irr_before_tax*100:.2f}%
 - **ROI on cash invested:** {roi*100:.2f}%
