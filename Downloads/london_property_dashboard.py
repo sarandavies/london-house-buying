@@ -5,6 +5,7 @@ import streamlit as st
 import numpy as np
 import numpy_financial as npf
 import pandas as pd
+import random
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Property Buy vs Rent Calculator", layout="wide")
@@ -13,9 +14,9 @@ st.markdown("""
 This app helps you compare buying vs renting.
 
 It calculates:
-- your cash left after buying
+- your true cash left after buying
 - total rent paid over time
-- a clear difference between the two options
+- a clear, single difference between the two options
 """)
 
 # --- HELPER FUNCTIONS ---
@@ -48,16 +49,20 @@ st.header("1. Property & Loan Details")
 
 house_price = st.slider("Total House Price (£)", 100_000, 2_000_000, 600_000, step=10_000)
 deposit = st.slider("Deposit (£)", 0, house_price, 60_000, step=10_000)
-interest_rate = st.slider("Mortgage Interest Rate (%)", 0.5, 10.0, 4.25, step=0.05)
+base_interest_rate = st.slider("Mortgage Interest Rate (%)", 0.5, 10.0, 4.25, step=0.05)
 term_years = st.slider("Loan Term (years)", 5, 40, 25)
 
 loan_amount = house_price - deposit
 n_payments = term_years * 12
 
-base_monthly_rate = interest_rate / 100 / 12
+# Estimate monthly mortgage payment BEFORE risk adjustments
+base_monthly_rate = base_interest_rate / 100 / 12
 base_monthly_payment = npf.pmt(base_monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
 
-st.metric("Estimated Monthly Mortgage Payment (before sale)", f"£{base_monthly_payment:,.0f}")
+st.metric(
+    "Estimated Monthly Mortgage Payment (estimate subject to market volatility)",
+    f"£{base_monthly_payment:,.0f}"
+)
 
 # --- RENTAL COMPARISON ---
 st.header("2. Rental Scenario")
@@ -68,6 +73,15 @@ rent_growth = st.slider("Expected Annual Rent Increase (%)", 0.0, 10.0, 3.0, ste
 # --- FEES ---
 st.header("3. Buying Costs & Fees")
 
+st.markdown("""
+💡 **Why Remortgaging Matters**
+
+- Most mortgages have a fixed rate for 2–5 years.
+- After that, you usually remortgage to avoid high variable rates.
+- Each remortgage costs legal, valuation, and arrangement fees.
+- Over decades, these costs add up significantly.
+""")
+
 remortgage_cost = st.number_input("Estimated Cost per Remortgage (£)", value=1_500, step=100)
 base_transaction_fees = st.number_input("Other Transaction Fees (legal, searches etc.) (£)", value=7_500, step=500)
 
@@ -77,58 +91,115 @@ st.metric("Stamp Duty (Estimated)", f"£{stamp_duty:,.0f}")
 renovation_costs = st.number_input("Renovation Costs (£, optional)", value=0, step=1000)
 renovation_uplift = st.slider("Estimated % Uplift from Renovations", 0.0, 50.0, 0.0, step=1.0)
 
-# --- OWNERSHIP COSTS ---
+# --- ANNUAL OWNERSHIP COSTS ---
 st.header("4. Annual Ownership Costs")
 
 annual_maintenance_rate = st.slider("Annual Maintenance Cost (% of property value)", 0.0, 2.0, 0.5, step=0.1)
 annual_maintenance_cost = house_price * (annual_maintenance_rate / 100)
 
-# --- APPRECIATION AND SALE ---
-st.header("5. Property Sale & Outcomes")
+# --- RISK WHEEL ---
+st.header("🌀 Market Scenario or Manual Settings")
+
+use_risk_scenario = st.checkbox("Enable Random or Manual Risk Scenario?", value=False)
+
+# Default adjustments
+appreciation_rate_adj = 0
+risk_interest_rate = base_interest_rate
+
+if use_risk_scenario:
+    scenarios = [
+        "Base Case (steady market)",
+        "Interest Rate Spike / Asset Crash",
+        "Interest Rates Drop / Asset Boom",
+        "Major Structural Repairs"
+    ]
+
+    spin_wheel = st.checkbox("Spin the wheel randomly?", value=True)
+
+    if spin_wheel:
+        risk_scenario = random.choice(scenarios)
+        st.write(f"**Random scenario selected:** {risk_scenario}")
+    else:
+        risk_scenario = st.selectbox(
+            "Or manually choose a scenario:",
+            scenarios
+        )
+
+    if risk_scenario == "Interest Rate Spike / Asset Crash":
+        appreciation_rate_adj = -5
+        risk_interest_rate = base_interest_rate + 2
+        st.warning("Simulating market crash: lower appreciation, higher mortgage rate.")
+    elif risk_scenario == "Interest Rates Drop / Asset Boom":
+        appreciation_rate_adj = 3
+        risk_interest_rate = max(0.5, base_interest_rate - 1)
+        st.success("Simulating asset boom: higher appreciation, lower mortgage rate.")
+    elif risk_scenario == "Major Structural Repairs":
+        appreciation_rate_adj = 0
+        renovation_costs += 50_000
+        st.warning("Added £50,000 structural repair cost.")
+    else:
+        appreciation_rate_adj = 0
+        risk_interest_rate = base_interest_rate
+else:
+    appreciation_rate_adj = 0
+    risk_interest_rate = base_interest_rate
+
+# --- MONTHLY PAYMENT AFTER RISK ---
+monthly_rate = risk_interest_rate / 100 / 12
+monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
+st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
+
+# --- CAPITAL APPRECIATION ---
+st.header("5. Property Appreciation & ROI")
 
 sale_year = st.slider("House Sale Year", 1, 50, 5)
 appreciation_rate = st.slider("Expected Annual Property Appreciation (%)", -5.0, 10.0, 2.6)
-sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 
-# Calculate sale price
-sale_value = house_price * ((1 + appreciation_rate / 100) ** sale_year)
+# Remortgaging scaled to actual ownership period
+actual_remortgages = max(0, (sale_year - 1) // 5)
+total_remortgage_costs = actual_remortgages * remortgage_cost
+
+transaction_fees = base_transaction_fees + total_remortgage_costs
+total_maintenance_cost = annual_maintenance_cost * sale_year
+
+fees_total = (
+    transaction_fees
+    + stamp_duty
+    + renovation_costs
+    + total_maintenance_cost
+)
+
+adjusted_appreciation_rate = appreciation_rate + appreciation_rate_adj
+
+sale_value = house_price * ((1 + adjusted_appreciation_rate / 100) ** sale_year)
 sale_value *= (1 + renovation_uplift / 100)
+
+sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 sale_fees = sale_value * (sale_fee_rate / 100)
 
-# --- MORTGAGE CALCULATIONS ---
-# Track balance and interest paid
+gross_proceeds = sale_value - sale_fees - loan_amount
+
+# --- Calculate interest paid over years held ---
 principal_remaining = loan_amount
 total_interest_paid = 0
 
 for _ in range(sale_year * 12):
-    interest_month = principal_remaining * base_monthly_rate
-    principal_payment = base_monthly_payment - interest_month
+    interest_month = principal_remaining * monthly_rate
+    principal_payment = monthly_payment - interest_month
     total_interest_paid += interest_month
     principal_remaining -= principal_payment
     if principal_remaining <= 0:
         principal_remaining = 0
         break
 
-# --- BUYING COSTS TOTAL ---
-actual_remortgages = max(0, (sale_year - 1) // 5)
-total_remortgage_costs = actual_remortgages * remortgage_cost
-transaction_fees = base_transaction_fees + total_remortgage_costs
-total_maintenance_cost = annual_maintenance_cost * sale_year
+# Calculate net cash after sale
+net_proceeds = gross_proceeds - fees_total
+final_cash_after_sale = net_proceeds - total_interest_paid
 
-buying_costs = (
-    stamp_duty
-    + renovation_costs
-    + transaction_fees
-    + total_maintenance_cost
-)
-
-gross_proceeds = sale_value - sale_fees - principal_remaining
-net_cash_from_sale = gross_proceeds - total_interest_paid - buying_costs
-
-roi = (net_cash_from_sale - deposit) / deposit if deposit > 0 else 0.0
+roi = (final_cash_after_sale - deposit) / deposit if deposit > 0 else 0.0
 
 irr_before_tax = npf.irr(
-    [-deposit - buying_costs] + [0] * (sale_year - 1) + [gross_proceeds]
+    [-deposit - fees_total] + [0] * (sale_year - 1) + [gross_proceeds]
 ) if deposit > 0 else 0.0
 
 # --- RENT CALCULATION ---
@@ -139,34 +210,34 @@ for year in range(sale_year):
     total_rent_paid += current_rent * 12
     current_rent *= (1 + rent_growth / 100)
 
-# --- TRUE COST COMPARISON ---
-total_cost_of_buying = -net_cash_from_sale  # because a negative net_cash_from_sale is a cost
-difference = total_rent_paid - total_cost_of_buying
+# --- FINAL DIFFERENCE ---
+# Correct logic:
+# Buying advantage = net cash after sale minus total rent paid
+difference = final_cash_after_sale - total_rent_paid
 
 # --- RESULTS ---
 st.header("6. Results")
 
 st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
-st.metric("Gross Proceeds After Sale", f"£{gross_proceeds:,.0f}")
-st.metric("Net Cash After Buying (sale proceeds minus costs)", f"£{net_cash_from_sale:,.0f}")
+st.metric("Net Cash After Buying (sale proceeds minus all costs & interest)", f"£{final_cash_after_sale:,.0f}")
 st.metric("Total Rent Paid Over Period", f"£{total_rent_paid:,.0f}")
-st.metric("Difference (Renting cost minus Buying cost)", f"£{difference:,.0f}")
+st.metric("Difference (Buying minus Renting)", f"£{difference:,.0f}")
 
 # --- SUMMARY ---
 st.header("7. Plain-English Summary")
 
-if net_cash_from_sale >= 0:
-    net_text = f"Buying leaves you with £{net_cash_from_sale:,.0f} in cash after all costs and interest."
+if final_cash_after_sale >= 0:
+    net_text = f"Buying leaves you with £{final_cash_after_sale:,.0f} in cash after all costs and interest."
 else:
-    net_text = f"Buying results in a net loss of £{abs(net_cash_from_sale):,.0f} after all costs and interest."
+    net_text = f"Buying results in a loss of £{abs(final_cash_after_sale):,.0f} after all costs and interest."
 
 if difference > 0:
-    compare_text = f"✅ Renting is cheaper by £{difference:,.0f} over {sale_year} years."
+    compare_text = f"✅ Buying is £{difference:,.0f} better than renting over {sale_year} years."
 else:
-    compare_text = f"✅ Buying is cheaper than renting by £{abs(difference):,.0f} over {sale_year} years."
+    compare_text = f"❌ Renting is £{abs(difference):,.0f} cheaper than buying over {sale_year} years."
 
 summary_text = f"""
-- **Buying costs (stamp duty, fees, renovations, maintenance):** £{buying_costs:,.0f}
+- **Buying costs (stamp duty, fees, renovations, maintenance):** £{fees_total:,.0f}
 - **Total interest paid over {sale_year} years:** £{total_interest_paid:,.0f}
 - **Gross proceeds from selling house:** £{gross_proceeds:,.0f}
 - **Net cash result from buying:** {net_text}
