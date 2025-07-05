@@ -17,6 +17,9 @@ It covers costs, risks, and potential gains so you can play out different scenar
 
 # --- HELPER FUNCTIONS ---
 def calculate_stamp_duty(price):
+    """
+    Calculates stamp duty based on UK tax bands.
+    """
     bands = [
         (125_000, 0.00),
         (250_000, 0.02),
@@ -51,7 +54,7 @@ term_years = st.slider("Loan Term (years)", 5, 40, 25)
 loan_amount = house_price - deposit
 n_payments = term_years * 12
 
-# Estimate base monthly mortgage payment
+# Estimate monthly mortgage payment BEFORE risk adjustments
 base_monthly_rate = base_interest_rate / 100 / 12
 base_monthly_payment = npf.pmt(base_monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
 
@@ -64,7 +67,10 @@ st.metric(
 st.header("2. Rental Market Comparison")
 
 rent_monthly = st.slider("Monthly Rent (£)", 500, 5000, 2250, step=50)
-rent_growth_rate = st.slider("Expected Annual Rent Increase (%)", 0.0, 10.0, 2.5, step=0.1)
+rent_growth_rate = st.slider(
+    "Expected Annual Rent Increase (%)",
+    0.0, 10.0, 2.0, step=0.1
+)
 
 # --- FEES ---
 st.header("3. Buying Costs & Fees")
@@ -128,6 +134,7 @@ st.header("🌀 Market Scenario or Manual Settings")
 
 use_risk_scenario = st.checkbox("Enable Random or Manual Risk Scenario?", value=False)
 
+# Default adjustments
 appreciation_rate_adj = 0
 risk_interest_rate = base_interest_rate
 
@@ -180,6 +187,7 @@ st.header("5. Property Appreciation & ROI")
 sale_year = st.slider("House Sale Year", 1, 50, 5)
 appreciation_rate = st.slider("Expected Annual Property Appreciation (%)", -5.0, 10.0, 2.6)
 
+# Remortgaging scaled to actual ownership period
 actual_remortgages = max(0, (sale_year - 1) // 5)
 total_remortgage_costs = actual_remortgages * remortgage_cost_per_time
 
@@ -203,7 +211,7 @@ sale_fees = sale_value * (sale_fee_rate / 100)
 
 gross_proceeds = sale_value - sale_fees - loan_amount
 
-# Calculate interest paid over holding period
+# --- Calculate interest paid over years held ---
 principal_remaining = loan_amount
 total_interest_paid = 0
 
@@ -215,7 +223,7 @@ for _ in range(sale_year * 12):
     if principal_remaining <= 0:
         break
 
-# Calculate final cash
+# Calculate net cash after sale
 net_proceeds = gross_proceeds - fees_total
 final_cash_after_sale = net_proceeds - total_interest_paid
 
@@ -225,15 +233,16 @@ irr_before_tax = npf.irr(
     [-deposit - fees_total] + [0] * (sale_year - 1) + [net_proceeds]
 )
 
-# --- RENT CALCULATION WITH GROWTH ---
-rent_costs = []
-rent_now = rent_monthly
+# --- RENT COST OVER TIME ---
+# Calculate total rent paid over sale period
+rent_total = 0
+current_rent = rent_monthly
 
-for year in range(sale_year):
-    rent_costs.append(rent_now * 12)
-    rent_now *= (1 + rent_growth_rate / 100)
+for year in range(1, sale_year + 1):
+    rent_total += current_rent * 12
+    current_rent *= (1 + rent_growth_rate / 100)
 
-total_rent_cost = sum(rent_costs)
+total_rent_paid = rent_total
 
 # --- UNRECOVERABLE COSTS ---
 st.header("6. Unrecoverable Cost Comparison")
@@ -241,7 +250,7 @@ st.header("6. Unrecoverable Cost Comparison")
 mortgage_unrecoverable = total_interest_paid + fees_total
 
 st.metric("Unrecoverable Cost of Mortgage (£)", f"£{mortgage_unrecoverable:,.0f}")
-st.metric("Total Rent Paid Over Period (£)", f"£{total_rent_cost:,.0f}")
+st.metric("Total Rent Paid Over Period (£)", f"£{total_rent_paid:,.0f}")
 
 # --- PROPERTY METRICS ---
 st.header("7. Property Financial Metrics")
@@ -270,13 +279,8 @@ with col2:
 # --- SUMMARY ---
 st.header("8. Plain-English Summary")
 
-# Correct logic for comparison
-net_benefit = total_rent_cost + final_cash_after_sale
-
-if net_benefit < 0:
-    outcome_text = f"Buying would cost £{abs(net_benefit):,.0f} less than renting over this period, even though you end up with £{final_cash_after_sale:,.0f} cash from buying."
-else:
-    outcome_text = f"Renting would cost £{net_benefit:,.0f} less than buying over this period."
+# Correct comparison
+difference_vs_rent = final_cash_after_sale + total_rent_paid
 
 summary_text = f"""
 - **Buying costs (fees, renovations, maintenance):** £{fees_total:,.0f}
@@ -285,10 +289,10 @@ summary_text = f"""
 - **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
 - **ROI based on cash invested:** {roi*100:.2f}%
-- **Total rent paid over same period (with growth):** £{total_rent_cost:,.0f}
+- **Total rent paid over same period (with growth):** £{total_rent_paid:,.0f}
 - **Potential alternative investment value:** £{invested_alt:,.0f}
 
-✅ **{outcome_text}**
+**Net financial outcome vs renting:** {"Up" if difference_vs_rent > 0 else "Down"} by £{abs(difference_vs_rent):,.0f}
 """
 
 st.markdown(summary_text)
@@ -311,4 +315,3 @@ st.line_chart(historical.set_index("End Year")["London Return %"])
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
-
