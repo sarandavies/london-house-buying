@@ -11,12 +11,13 @@ import random
 st.set_page_config(page_title="Property Buy vs Rent Calculator", layout="wide")
 st.title("🏠 Should You Buy a House in London?... tl;dr generally, no 🥲")
 st.markdown("""
-This app helps you compare buying vs renting.
+This app helps you compare buying vs renting in clear financial terms.
 
 It calculates:
-- your true cash left after buying
-- total rent paid over time
-- a clear, single difference between the two options
+- how much cash you'd keep after buying & selling
+- how much total rent you'd pay instead
+- whether buying is cheaper than renting
+- the opportunity cost of tying up your deposit
 """)
 
 # --- HELPER FUNCTIONS ---
@@ -55,12 +56,11 @@ term_years = st.slider("Loan Term (years)", 5, 40, 25)
 loan_amount = house_price - deposit
 n_payments = term_years * 12
 
-# Estimate monthly mortgage payment BEFORE risk adjustments
 base_monthly_rate = base_interest_rate / 100 / 12
 base_monthly_payment = npf.pmt(base_monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
 
 st.metric(
-    "Estimated Monthly Mortgage Payment (estimate subject to market volatility)",
+    "Estimated Monthly Mortgage Payment (before risk adjustments)",
     f"£{base_monthly_payment:,.0f}"
 )
 
@@ -70,7 +70,7 @@ st.header("2. Rental Scenario")
 rent_monthly = st.slider("Monthly Rent (£)", 500, 5000, 2250, step=50)
 rent_growth = st.slider("Expected Annual Rent Increase (%)", 0.0, 10.0, 3.0, step=0.5)
 
-# --- FEES ---
+# --- FEES & COSTS ---
 st.header("3. Buying Costs & Fees")
 
 remortgage_cost = st.number_input("Estimated Cost per Remortgage (£)", value=1_500, step=100)
@@ -88,12 +88,11 @@ st.header("4. Annual Ownership Costs")
 annual_maintenance_rate = st.slider("Annual Maintenance Cost (% of property value)", 0.0, 2.0, 0.5, step=0.1)
 annual_maintenance_cost = house_price * (annual_maintenance_rate / 100)
 
-# --- RISK WHEEL ---
+# --- MARKET SCENARIO ---
 st.header("5. Market Scenario or Manual Settings")
 
 use_risk_scenario = st.checkbox("Enable Random or Manual Risk Scenario?", value=False)
 
-# Default adjustments
 appreciation_rate_adj = 0
 risk_interest_rate = base_interest_rate
 
@@ -131,31 +130,31 @@ if use_risk_scenario:
     else:
         appreciation_rate_adj = 0
         risk_interest_rate = base_interest_rate
+
 else:
     appreciation_rate_adj = 0
     risk_interest_rate = base_interest_rate
 
-# --- FINAL MORTGAGE PAYMENT BASED ON RISK RATE ---
 monthly_rate = risk_interest_rate / 100 / 12
 monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
 
 st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 
-# --- APPRECIATION & SALE ---
-st.header("6. Property Sale & Outcomes")
+# --- SALE CALCULATIONS ---
+st.header("6. Property Appreciation & Sale")
 
 sale_year = st.slider("House Sale Year", 1, 50, 5)
 appreciation_rate = st.slider("Expected Annual Property Appreciation (%)", -5.0, 10.0, 2.6)
 sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 
-# Calculate sale value
+# Calculate future house value
 adjusted_appreciation_rate = appreciation_rate + appreciation_rate_adj
 sale_value = house_price * ((1 + adjusted_appreciation_rate / 100) ** sale_year)
 sale_value *= (1 + renovation_uplift / 100)
 
 sale_fees = sale_value * (sale_fee_rate / 100)
 
-# Track balance and interest paid
+# --- MORTGAGE PRINCIPAL & INTEREST ---
 principal_remaining = loan_amount
 total_interest_paid = 0
 
@@ -168,27 +167,30 @@ for _ in range(sale_year * 12):
         principal_remaining = 0
         break
 
-gross_proceeds = sale_value - sale_fees - principal_remaining
-
-# --- BUYING COSTS TOTAL ---
+# --- TOTAL BUYING COSTS ---
 actual_remortgages = max(0, (sale_year - 1) // 5)
 total_remortgage_costs = actual_remortgages * remortgage_cost
 transaction_fees = base_transaction_fees + total_remortgage_costs
 total_maintenance_cost = annual_maintenance_cost * sale_year
 
-buying_costs = (
+buying_costs_total = (
     stamp_duty
     + renovation_costs
     + transaction_fees
     + total_maintenance_cost
+    + total_interest_paid
 )
 
-net_cash_from_sale = gross_proceeds - buying_costs - total_interest_paid
+# --- NET GAIN FROM BUYING ---
+gross_proceeds = sale_value - sale_fees - principal_remaining
 
-roi = (net_cash_from_sale - deposit) / deposit if deposit > 0 else 0.0
+net_cash_after_buying = gross_proceeds - buying_costs_total
+
+# ROI and IRR
+roi = (net_cash_after_buying - deposit) / deposit if deposit > 0 else 0.0
 
 irr_before_tax = npf.irr(
-    [-deposit - buying_costs] + [0] * (sale_year - 1) + [gross_proceeds]
+    [-deposit - (buying_costs_total - total_interest_paid)] + [0]*(sale_year-1) + [gross_proceeds]
 )
 
 # --- RENT CALCULATION ---
@@ -199,47 +201,59 @@ for year in range(sale_year):
     total_rent_paid += current_rent * 12
     current_rent *= (1 + rent_growth / 100)
 
-# --- COMPARISON ---
-difference = net_cash_from_sale - total_rent_paid
+# --- DIFFERENCE CALCULATION ---
+# Cost of renting = total rent
+# Cost of buying = net cash position minus your deposit
+net_cost_of_buying = deposit - net_cash_after_buying
+
+difference_vs_rent = total_rent_paid - net_cost_of_buying
+
+# --- OPPORTUNITY COST ---
+alt_investment_rate = st.slider("Alternative Annual Investment Return (%)", 0.0, 10.0, 4.0, step=0.5)
+alt_investment_value = deposit * ((1 + alt_investment_rate / 100) ** sale_year)
+
+opportunity_cost = alt_investment_value - deposit
+difference_adjusted = difference_vs_rent - opportunity_cost
 
 # --- RESULTS ---
 st.header("7. Results")
 
-st.metric("Expected Sale Value", f"£{sale_value:,.0f}")
-st.metric("Gross Proceeds After Sale", f"£{gross_proceeds:,.0f}")
 st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
-st.metric("Net Cash After Buying (sale minus all costs)", f"£{net_cash_from_sale:,.0f}")
+st.metric("Gross Sale Proceeds (after fees and mortgage)", f"£{gross_proceeds:,.0f}")
+st.metric("Net Cash After Buying (sale minus costs and interest)", f"£{net_cash_after_buying:,.0f}")
 st.metric("Total Rent Paid Over Period", f"£{total_rent_paid:,.0f}")
-st.metric("Difference (Buying minus Renting)", f"£{difference:,.0f}")
+st.metric("Difference vs Renting (positive = buying cheaper)", f"£{difference_vs_rent:,.0f}")
+st.metric("Difference Adjusted for Opportunity Cost", f"£{difference_adjusted:,.0f}")
 
 # --- SUMMARY ---
 st.header("8. Plain-English Summary")
 
-if net_cash_from_sale >= 0:
-    net_text = f"Buying leaves you with £{net_cash_from_sale:,.0f} in cash after all costs and interest."
-else:
-    net_text = f"Buying results in a loss of £{abs(net_cash_from_sale):,.0f} after all costs and interest."
-
-if difference > 0:
-    compare_text = f"✅ Buying leaves you £{difference:,.0f} better off than renting over {sale_year} years."
-else:
-    compare_text = f"❌ Renting is £{abs(difference):,.0f} cheaper than buying over {sale_year} years."
-
 summary_text = f"""
-- **Expected resale value:** £{sale_value:,.0f}
-- **Gross proceeds after sale fees and mortgage payoff:** £{gross_proceeds:,.0f}
-- **Buying costs (stamp duty, fees, renovations, maintenance):** £{buying_costs:,.0f}
-- **Total interest paid over {sale_year} years:** £{total_interest_paid:,.0f}
-- **Net cash result from buying:** {net_text}
-- **Total rent paid over same period:** £{total_rent_paid:,.0f}
+- **Buying costs (stamp duty, fees, renovations, maintenance, interest):** £{buying_costs_total:,.0f}
+- **Gross proceeds from selling house:** £{gross_proceeds:,.0f}
+- **Net cash position after buying:** £{net_cash_after_buying:,.0f}
+- **Total rent paid over {sale_year} years:** £{total_rent_paid:,.0f}
 - **Estimated IRR on buying:** {irr_before_tax*100:.2f}%
 - **ROI on cash invested:** {roi*100:.2f}%
-- {compare_text}
 """
+
+if net_cash_after_buying > deposit:
+    summary_text += f"\n✅ Buying leaves you £{net_cash_after_buying - deposit:,.0f} ahead of your initial deposit."
+else:
+    summary_text += f"\n❌ Buying results in a loss of £{deposit - net_cash_after_buying:,.0f} vs your deposit."
+
+if difference_vs_rent > 0:
+    summary_text += f"\n\n✅ Buying is £{difference_vs_rent:,.0f} cheaper than renting over {sale_year} years."
+else:
+    summary_text += f"\n\n❌ Renting is £{abs(difference_vs_rent):,.0f} cheaper than buying over {sale_year} years."
+
+summary_text += f"\n\n- **Potential alternative investment value:** £{alt_investment_value:,.0f}"
+summary_text += f"\n- **Opportunity cost of tying up deposit:** £{opportunity_cost:,.0f}"
+summary_text += f"\n- **Adjusted difference (after considering missed investment gains):** £{difference_adjusted:,.0f}"
 
 st.markdown(summary_text)
 
-# --- DATA VISUALISATION ---
+# --- HISTORICAL DATA ---
 st.header("9. Historical Appreciation Data")
 
 historical = pd.DataFrame({
