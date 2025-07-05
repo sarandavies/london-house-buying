@@ -202,21 +202,16 @@ st.header("6. Property Appreciation & ROI")
 
 sale_year = st.slider("House Sale Year", 1, 50, 5)
 appreciation_rate = st.slider("Expected Annual Property Appreciation (%)", -5.0, 10.0, 2.6)
-price_volatility = st.slider("Price Volatility (Standard Deviation, %)", 0.0, 10.0, 2.0, step=0.5)
 
+# Apply scenario adjustment (no randomness!)
 adjusted_appreciation_rate = appreciation_rate + appreciation_rate_adj
 
-sale_value = house_price
-price_path = []
-
-for y in range(sale_year):
-    annual_growth = np.random.normal(loc=adjusted_appreciation_rate, scale=price_volatility)
-    sale_value *= (1 + annual_growth/100)
-    price_path.append(sale_value)
-
+# Calculate sale value with compound growth
+sale_value = house_price * ((1 + adjusted_appreciation_rate / 100) ** sale_year)
 sale_value *= (1 + renovation_uplift / 100)
 
-sale_fees = sale_value * 0.03
+sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
+sale_fees = sale_value * (sale_fee_rate / 100)
 net_proceeds = sale_value - sale_fees - loan_amount
 
 irr_before_tax = npf.irr([-deposit - fees_total] + [0]*(sale_year-1) + [net_proceeds])
@@ -288,8 +283,6 @@ st.dataframe(historical)
 
 st.line_chart(historical.set_index("End Year")["London Return %"])
 
-if st.checkbox("Show Simulated House Price Path"):
-    st.line_chart(pd.Series(price_path, name="Simulated Price"))
-
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
+
