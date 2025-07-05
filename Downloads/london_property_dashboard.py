@@ -175,9 +175,9 @@ else:
     appreciation_rate_adj = 0
     risk_interest_rate = base_interest_rate
 
+# --- MONTHLY PAYMENT ---
 monthly_rate = risk_interest_rate / 100 / 12
 monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount)
-
 st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 
 # --- CAPITAL APPRECIATION ---
@@ -211,18 +211,34 @@ sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 sale_fees = sale_value * (sale_fee_rate / 100)
 
 gross_proceeds = sale_value - sale_fees - loan_amount
+
+# --- Calculate interest paid over years held ---
+principal_remaining = loan_amount
+total_interest_paid = 0
+
+for _ in range(sale_year * 12):
+    interest_month = principal_remaining * monthly_rate
+    principal_payment = monthly_payment - interest_month
+    total_interest_paid += interest_month
+    principal_remaining -= principal_payment
+    if principal_remaining <= 0:
+        break
+
+# Calculate net cash after sale
 net_proceeds = gross_proceeds - fees_total
+final_cash_after_sale = net_proceeds - total_interest_paid
 
-interest_paid = (monthly_payment * n_payments) - loan_amount
-final_cash_after_sale = net_proceeds - interest_paid
+# ROI based on deposit
+roi = (final_cash_after_sale - deposit) / deposit if deposit > 0 else 0.0
 
-roi = (final_cash_after_sale - deposit) / deposit
-irr_before_tax = npf.irr([-deposit - fees_total] + [0]*(sale_year-1) + [gross_proceeds])
+irr_before_tax = npf.irr(
+    [-deposit - fees_total] + [0] * (sale_year - 1) + [net_proceeds]
+)
 
 # --- UNRECOVERABLE COSTS ---
 st.header("6. Unrecoverable Cost Comparison")
 
-mortgage_unrecoverable = interest_paid + fees_total
+mortgage_unrecoverable = total_interest_paid + fees_total
 rent_unrecoverable = rent_monthly * 12 * sale_year * (1 - (net_yield / gross_yield))
 
 st.metric("Unrecoverable Cost of Mortgage (£)", f"£{mortgage_unrecoverable:,.0f}")
@@ -259,7 +275,7 @@ difference_vs_rent = final_cash_after_sale - rent_unrecoverable
 
 summary_text = f"""
 - **Buying costs (fees, renovations, maintenance):** £{fees_total:,.0f}
-- **Total interest paid over {sale_year} years:** £{interest_paid:,.0f}
+- **Total interest paid over {sale_year} years:** £{total_interest_paid:,.0f}
 - **Gross proceeds after sale fees and mortgage payoff:** £{gross_proceeds:,.0f}
 - **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
@@ -289,3 +305,4 @@ st.line_chart(historical.set_index("End Year")["London Return %"])
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
+
