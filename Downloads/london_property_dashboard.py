@@ -10,12 +10,10 @@ import random
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Property Buy vs Rent Calculator", layout="wide")
 st.title("🏠 Should You Buy a House in London?... tl;dr No 🥲")
-st.markdown(
-    """
-    This app helps you compare buying vs renting.
-    It covers costs, risks, and potential gains so you can play out different scenarios.
-    """
-)
+st.markdown("""
+This app helps you compare buying vs renting.
+It covers costs, risks, and potential gains so you can play out different scenarios.
+""")
 
 # --- HELPER FUNCTIONS ---
 def calculate_stamp_duty(price):
@@ -181,7 +179,7 @@ elif risk_scenario == "Interest Rates Drop / Asset Boom":
 elif risk_scenario == "Major Structural Repairs":
     appreciation_rate_adj = 0
     renovation_costs += 50_000
-    fees_total = transaction_fees + stamp_duty + renovation_costs + total_maintenance_cost
+    fees_total += 50_000
     st.warning("Added £50,000 structural repair cost.")
 else:
     appreciation_rate_adj = 0
@@ -203,23 +201,30 @@ st.header("6. Property Appreciation & ROI")
 sale_year = st.slider("House Sale Year", 1, 50, 5)
 appreciation_rate = st.slider("Expected Annual Property Appreciation (%)", -5.0, 10.0, 2.6)
 
-# Apply scenario adjustment (no randomness!)
+# Apply scenario adjustment
 adjusted_appreciation_rate = appreciation_rate + appreciation_rate_adj
 
-# Calculate sale value with compound growth
 sale_value = house_price * ((1 + adjusted_appreciation_rate / 100) ** sale_year)
 sale_value *= (1 + renovation_uplift / 100)
 
 sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 sale_fees = sale_value * (sale_fee_rate / 100)
-net_proceeds = sale_value - sale_fees - loan_amount
 
-irr_before_tax = npf.irr([-deposit - fees_total] + [0]*(sale_year-1) + [net_proceeds])
+# calculate proceeds after paying off mortgage and selling costs
+gross_proceeds = sale_value - sale_fees - loan_amount
 
-total_outlay = deposit + fees_total
-roi = (net_proceeds - total_outlay) / total_outlay
+# deduct all upfront and ownership costs
+net_proceeds = gross_proceeds - fees_total
 
-buy_net_result = net_proceeds - mortgage_unrecoverable
+# subtract interest to get final cash result
+final_cash_after_sale = net_proceeds - interest_paid
+
+# ROI based on total cash invested
+roi = (final_cash_after_sale - deposit) / deposit
+
+irr_before_tax = npf.irr([-deposit - fees_total] + [0]*(sale_year-1) + [gross_proceeds])
+
+buy_net_result = final_cash_after_sale
 difference_vs_rent = buy_net_result + rent_unrecoverable
 
 # --- PROPERTY METRICS ---
@@ -229,6 +234,8 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.metric("Expected Sale Value (£)", f"£{sale_value:,.0f}")
+    st.metric("Gross Proceeds After Sale (£)", f"£{gross_proceeds:,.0f}")
+    st.metric("Net Proceeds After Costs (£)", f"£{final_cash_after_sale:,.0f}")
     st.metric("IRR Before Tax", f"{irr_before_tax*100:.2f}%")
     st.metric("Return on Investment (ROI)", f"{roi*100:.2f}%")
 
@@ -253,13 +260,13 @@ with col2:
 st.header("8. Plain-English Summary")
 
 summary_text = f"""
-- **Buying costs (including interest, fees, maintenance):** £{mortgage_unrecoverable:,.0f}
-- **Renting costs over {term_years} years:** £{rent_unrecoverable:,.0f}
-- **Estimated sale value:** £{sale_value:,.0f}
-- **Cash left after selling:** £{net_proceeds:,.0f}
+- **Buying costs (fees, renovations, maintenance):** £{fees_total:,.0f}
+- **Total interest paid over {term_years} years:** £{interest_paid:,.0f}
+- **Gross proceeds after sale fees and mortgage payoff:** £{gross_proceeds:,.0f}
+- **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
-- **ROI based on total cash invested:** {roi*100:.2f}%
-- **Potential return from investing your deposit instead:** £{invested_alt:,.0f}
+- **ROI based on cash invested:** {roi*100:.2f}%
+- **Potential alternative investment value:** £{invested_alt:,.0f}
 
 **Net financial outcome vs renting:** {"Up" if difference_vs_rent > 0 else "Down"} by £{abs(difference_vs_rent):,.0f}
 """
@@ -285,4 +292,5 @@ st.line_chart(historical.set_index("End Year")["London Return %"])
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
+
 
