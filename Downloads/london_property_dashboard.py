@@ -135,6 +135,13 @@ net_cash_after_buying = gross_proceeds - (
     + total_interest_paid
 )
 
+# Calculate IRR and ROI
+irr_before_tax = npf.irr(
+    [-deposit - buying_costs] + [0] * (sale_year - 1) + [gross_proceeds]
+)
+
+roi = (net_cash_after_buying - deposit) / deposit if deposit > 0 else 0.0
+
 # --- RENTING: TOTAL COST + DEPOSIT GROWTH ---
 # Total rent paid
 total_rent_paid = 0
@@ -150,10 +157,10 @@ deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year
 net_worth_renting = deposit_future_value
 
 # --- FINAL COMPARISON ---
-# Net worth after buying is simply cash left after sale
+# Net worth after buying
 net_worth_buying = net_cash_after_buying
 
-# Difference:
+# Difference
 difference = net_worth_buying - net_worth_renting
 
 # --- RESULTS ---
