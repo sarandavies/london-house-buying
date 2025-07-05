@@ -54,6 +54,15 @@ term_years = st.slider("Loan Term (years)", 5, 40, 25)
 loan_amount = house_price - deposit
 n_payments = term_years * 12
 
+# Estimate monthly mortgage payment BEFORE risk adjustments
+base_monthly_rate = base_interest_rate / 100 / 12
+base_monthly_payment = npf.pmt(base_monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
+
+st.metric(
+    "Estimated Monthly Mortgage Payment (estimate subject to market volatility)",
+    f"£{base_monthly_payment:,.0f}"
+)
+
 # --- RENTAL COMPARISON ---
 st.header("2. Rental Market Comparison")
 
@@ -175,11 +184,9 @@ else:
     appreciation_rate_adj = 0
     risk_interest_rate = base_interest_rate
 
-# --- MONTHLY PAYMENT ---
+# --- MONTHLY PAYMENT AFTER RISK ---
 monthly_rate = risk_interest_rate / 100 / 12
-monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount)
-
-st.header("🪙 Monthly Mortgage Payment")
+monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
 st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 
 # --- CAPITAL APPRECIATION ---
@@ -193,8 +200,6 @@ actual_remortgages = max(0, (sale_year - 1) // 5)
 total_remortgage_costs = actual_remortgages * remortgage_cost_per_time
 
 transaction_fees = base_transaction_fees + total_remortgage_costs
-
-# Maintenance scaled to sale period
 total_maintenance_cost = annual_maintenance_cost * sale_year
 
 fees_total = (
@@ -230,7 +235,6 @@ for _ in range(sale_year * 12):
 net_proceeds = gross_proceeds - fees_total
 final_cash_after_sale = net_proceeds - total_interest_paid
 
-# ROI based on deposit
 roi = (final_cash_after_sale - deposit) / deposit if deposit > 0 else 0.0
 
 irr_before_tax = npf.irr(
@@ -282,7 +286,7 @@ summary_text = f"""
 - **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
 - **ROI based on cash invested:** {roi*100:.2f}%
-- **Potential alternative investment portfolio value:** £{invested_alt:,.0f}
+- **Potential alternative investment value:** £{invested_alt:,.0f}
 
 **Net financial outcome vs renting:** {"Up" if difference_vs_rent > 0 else "Down"} by £{abs(difference_vs_rent):,.0f}
 """
