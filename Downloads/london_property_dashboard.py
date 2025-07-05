@@ -16,6 +16,7 @@ This app helps you compare buying vs renting.
 It calculates:
 - your true cash left after buying
 - total rent paid over time
+- your alternative investment outcome
 - a clear, single difference between the two options
 """)
 
@@ -189,7 +190,6 @@ net_cash_from_sale = gross_proceeds - (
     stamp_duty + renovation_costs + transaction_fees + total_maintenance_cost
 )
 
-# --- ROI / IRR ---
 roi = (net_cash_from_sale - deposit) / deposit if deposit > 0 else 0.0
 
 irr_before_tax = npf.irr(
@@ -211,21 +211,27 @@ alt_investment_return = st.slider(
 )
 deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year)
 
-# --- EXTRA RENT COST ---
-extra_rent_paid = max(0, total_rent_paid - total_mortgage_paid)
+renter_net_worth = deposit_future_value
 
-renter_net_worth = deposit_future_value - extra_rent_paid
-
+# --- FINAL DIFFERENCE ---
 difference = net_cash_from_sale - renter_net_worth
 
-# --- RESULTS ---
-st.header("6. Results")
+# --- COLUMNS ---
+st.header("6. Scenario Comparison")
 
-st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
-st.metric("Net Cash After Buying (sale minus all costs and interest)", f"£{net_cash_from_sale:,.0f}")
-st.metric("Deposit Value if Renting + Investing (£)", f"£{deposit_future_value:,.0f}")
-st.metric("Total Rent Paid Over Period (£)", f"£{total_rent_paid:,.0f}")
-st.metric("Difference (Buying - Renting Net Worth)", f"£{difference:,.0f}")
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("🏠 Buying Scenario")
+    st.metric("House Sale Value", f"£{sale_value:,.0f}")
+    st.metric("Total Mortgage Paid", f"£{total_mortgage_paid:,.0f}")
+    st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
+    st.metric("Net Cash After Buying", f"£{net_cash_from_sale:,.0f}")
+
+with col2:
+    st.subheader("🏠 Renting Scenario")
+    st.metric("Total Rent Paid", f"£{total_rent_paid:,.0f}")
+    st.metric("Deposit Value if Renting + Investing", f"£{deposit_future_value:,.0f}")
 
 # --- SUMMARY ---
 st.header("7. Plain-English Summary")
