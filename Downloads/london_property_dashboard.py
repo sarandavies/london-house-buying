@@ -48,15 +48,11 @@ st.header("1. Property & Loan Details")
 
 house_price = st.slider("Total House Price (£)", 100_000, 2_000_000, 600_000, step=10_000)
 deposit = st.slider("Deposit (£)", 0, house_price, 100_000, step=10_000)
-interest_rate = st.slider("Mortgage Interest Rate (%)", 0.5, 10.0, 4.25, step=0.05)
+base_interest_rate = st.slider("Mortgage Interest Rate (%)", 0.5, 10.0, 4.25, step=0.05)
 term_years = st.slider("Loan Term (years)", 5, 40, 25)
 
 loan_amount = house_price - deposit
-monthly_rate = interest_rate / 100 / 12
 n_payments = term_years * 12
-monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount)
-
-st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 
 # --- RENTAL COMPARISON ---
 st.header("2. Rental Market Comparison")
@@ -78,18 +74,6 @@ rent_monthly = st.slider("Monthly Rent (£)", 500, 5000, 2250, step=50)
 # --- FEES ---
 st.header("3. Buying Costs & Fees")
 
-remortgage_times = st.slider(
-    "Number of Remortgages (every ~5 years typical)",
-    0, 10, 5
-)
-remortgage_cost_per_time = st.number_input(
-    "Estimated Cost per Remortgage (£)",
-    value=1_500,
-    step=100
-)
-
-total_remortgage_costs = remortgage_times * remortgage_cost_per_time
-
 st.markdown("""
 💡 **Why Remortgaging Matters**
 
@@ -99,14 +83,17 @@ st.markdown("""
 - Over decades, these costs add up significantly.
 """)
 
+remortgage_cost_per_time = st.number_input(
+    "Estimated Cost per Remortgage (£)",
+    value=1_500,
+    step=100
+)
+
 base_transaction_fees = st.number_input(
     "Other Transaction Fees (e.g. legal, searches) (£)",
     value=7_500,
     step=500
 )
-
-transaction_fees = base_transaction_fees + total_remortgage_costs
-st.metric("Total Transaction Fees", f"£{transaction_fees:,.0f}")
 
 stamp_duty = calculate_stamp_duty(house_price)
 st.metric("Stamp Duty (Estimated)", f"£{stamp_duty:,.0f}")
@@ -140,68 +127,81 @@ annual_maintenance_rate = st.slider(
     0.0, 2.0, 0.5, step=0.1
 )
 annual_maintenance_cost = house_price * (annual_maintenance_rate / 100)
-total_maintenance_cost = annual_maintenance_cost * term_years
-
-st.metric("Total Maintenance Cost Over Term", f"£{total_maintenance_cost:,.0f}")
-
-fees_total = transaction_fees + stamp_duty + renovation_costs + total_maintenance_cost
 
 # --- RISK WHEEL ---
-st.header("🌀 Risk Wheel – Market Scenario")
+st.header("🌀 Market Scenario or Manual Settings")
 
-spin_wheel = st.checkbox("🎲 Spin the wheel randomly!", value=True)
+use_risk_scenario = st.checkbox("Enable Random or Manual Risk Scenario?", value=False)
 
-scenarios = [
-    "Base Case (steady market)",
-    "Interest Rate Spike / Asset Crash",
-    "Interest Rates Drop / Asset Boom",
-    "Major Structural Repairs"
-]
+# Default adjustments
+appreciation_rate_adj = 0
+risk_interest_rate = base_interest_rate
 
-if spin_wheel:
-    risk_scenario = random.choice(scenarios)
-    st.write(f"**Random scenario selected:** {risk_scenario}")
+if use_risk_scenario:
+    scenarios = [
+        "Base Case (steady market)",
+        "Interest Rate Spike / Asset Crash",
+        "Interest Rates Drop / Asset Boom",
+        "Major Structural Repairs"
+    ]
+
+    spin_wheel = st.checkbox("Spin the wheel randomly?", value=True)
+
+    if spin_wheel:
+        risk_scenario = random.choice(scenarios)
+        st.write(f"**Random scenario selected:** {risk_scenario}")
+    else:
+        risk_scenario = st.selectbox(
+            "Or manually choose a scenario:",
+            scenarios
+        )
+
+    if risk_scenario == "Interest Rate Spike / Asset Crash":
+        appreciation_rate_adj = -5
+        risk_interest_rate = base_interest_rate + 2
+        st.warning("Simulating market crash: lower appreciation, higher mortgage rate.")
+    elif risk_scenario == "Interest Rates Drop / Asset Boom":
+        appreciation_rate_adj = 3
+        risk_interest_rate = max(0.5, base_interest_rate - 1)
+        st.success("Simulating asset boom: higher appreciation, lower mortgage rate.")
+    elif risk_scenario == "Major Structural Repairs":
+        appreciation_rate_adj = 0
+        renovation_costs += 50_000
+        st.warning("Added £50,000 structural repair cost.")
+    else:
+        appreciation_rate_adj = 0
+        risk_interest_rate = base_interest_rate
 else:
-    risk_scenario = st.selectbox(
-        "Or manually choose a scenario:",
-        scenarios
-    )
-
-# Adjust parameters based on scenario
-if risk_scenario == "Interest Rate Spike / Asset Crash":
-    appreciation_rate_adj = -5
-    interest_rate += 2
-    st.warning("Simulating market crash: lower appreciation, higher mortgage rate.")
-elif risk_scenario == "Interest Rates Drop / Asset Boom":
-    appreciation_rate_adj = 3
-    interest_rate = max(0.5, interest_rate - 1)
-    st.success("Simulating asset boom: higher appreciation, lower mortgage rate.")
-elif risk_scenario == "Major Structural Repairs":
     appreciation_rate_adj = 0
-    renovation_costs += 50_000
-    fees_total += 50_000
-    st.warning("Added £50,000 structural repair cost.")
-else:
-    appreciation_rate_adj = 0
-    st.info("Base case scenario selected.")
+    risk_interest_rate = base_interest_rate
 
-# --- UNRECOVERABLE COSTS ---
-st.header("5. Unrecoverable Cost Comparison")
+monthly_rate = risk_interest_rate / 100 / 12
+monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount)
 
-interest_paid = (monthly_payment * n_payments) - loan_amount
-mortgage_unrecoverable = interest_paid + fees_total
-rent_unrecoverable = rent_monthly * 12 * term_years * (1 - (net_yield / gross_yield))
-
-st.metric("Unrecoverable Cost of Mortgage (£)", f"£{mortgage_unrecoverable:,.0f}")
-st.metric("Unrecoverable Cost of Renting (£)", f"£{rent_unrecoverable:,.0f}")
+st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 
 # --- CAPITAL APPRECIATION ---
-st.header("6. Property Appreciation & ROI")
+st.header("5. Property Appreciation & ROI")
 
 sale_year = st.slider("House Sale Year", 1, 50, 5)
 appreciation_rate = st.slider("Expected Annual Property Appreciation (%)", -5.0, 10.0, 2.6)
 
-# Apply scenario adjustment
+# Remortgaging scaled to actual ownership period
+actual_remortgages = max(0, (sale_year - 1) // 5)
+total_remortgage_costs = actual_remortgages * remortgage_cost_per_time
+
+transaction_fees = base_transaction_fees + total_remortgage_costs
+
+# Maintenance scaled to sale period
+total_maintenance_cost = annual_maintenance_cost * sale_year
+
+fees_total = (
+    transaction_fees
+    + stamp_duty
+    + renovation_costs
+    + total_maintenance_cost
+)
+
 adjusted_appreciation_rate = appreciation_rate + appreciation_rate_adj
 
 sale_value = house_price * ((1 + adjusted_appreciation_rate / 100) ** sale_year)
@@ -210,22 +210,23 @@ sale_value *= (1 + renovation_uplift / 100)
 sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 sale_fees = sale_value * (sale_fee_rate / 100)
 
-# calculate proceeds after paying off mortgage and selling costs
 gross_proceeds = sale_value - sale_fees - loan_amount
-
-# deduct all upfront and ownership costs
 net_proceeds = gross_proceeds - fees_total
 
-# subtract interest to get final cash result
+interest_paid = (monthly_payment * n_payments) - loan_amount
 final_cash_after_sale = net_proceeds - interest_paid
 
-# ROI based on total cash invested
 roi = (final_cash_after_sale - deposit) / deposit
-
 irr_before_tax = npf.irr([-deposit - fees_total] + [0]*(sale_year-1) + [gross_proceeds])
 
-buy_net_result = final_cash_after_sale
-difference_vs_rent = buy_net_result + rent_unrecoverable
+# --- UNRECOVERABLE COSTS ---
+st.header("6. Unrecoverable Cost Comparison")
+
+mortgage_unrecoverable = interest_paid + fees_total
+rent_unrecoverable = rent_monthly * 12 * sale_year * (1 - (net_yield / gross_yield))
+
+st.metric("Unrecoverable Cost of Mortgage (£)", f"£{mortgage_unrecoverable:,.0f}")
+st.metric("Unrecoverable Cost of Renting (£)", f"£{rent_unrecoverable:,.0f}")
 
 # --- PROPERTY METRICS ---
 st.header("7. Property Financial Metrics")
@@ -243,11 +244,6 @@ with col1:
 with col2:
     st.header("Alternative Investment Scenario")
 
-    st.markdown("""
-    Instead of buying, you could invest your deposit elsewhere.
-    This estimates how much you'd have if you invested it in other assets (e.g. stocks, bonds).
-    """)
-
     alt_investment_return = st.slider(
         "Alternative Annual Investment Return (%)",
         0.0, 10.0, 4.0, step=0.5
@@ -259,9 +255,11 @@ with col2:
 # --- SUMMARY ---
 st.header("8. Plain-English Summary")
 
+difference_vs_rent = final_cash_after_sale - rent_unrecoverable
+
 summary_text = f"""
 - **Buying costs (fees, renovations, maintenance):** £{fees_total:,.0f}
-- **Total interest paid over {term_years} years:** £{interest_paid:,.0f}
+- **Total interest paid over {sale_year} years:** £{interest_paid:,.0f}
 - **Gross proceeds after sale fees and mortgage payoff:** £{gross_proceeds:,.0f}
 - **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
@@ -287,10 +285,7 @@ historical = pd.DataFrame({
 historical["End Year"] = historical["End Year"].astype(str)
 
 st.dataframe(historical)
-
 st.line_chart(historical.set_index("End Year")["London Return %"])
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
-
-
