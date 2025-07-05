@@ -5,19 +5,19 @@ import streamlit as st
 import numpy as np
 import numpy_financial as npf
 import pandas as pd
+import random
 
 # --- PAGE SETUP ---
 st.set_page_config(page_title="Property Buy vs Rent Calculator", layout="wide")
 st.title("🏠 Should You Buy a House in London?... tl;dr No 🥲")
 st.markdown(
     """
-    This tool helps you compare buying vs renting over a fixed time period.
-    It explains costs, risks, and potential gains so you can make an informed decision.
+    This app helps you compare buying vs renting.
+    It covers costs, risks, and potential gains so you can play out different scenarios.
     """
 )
 
-
-# --- HELPER FUNCTIONS --- Interest rates depending on price
+# --- HELPER FUNCTIONS ---
 def calculate_stamp_duty(price):
     bands = [
         (125_000, 0.00),
@@ -59,9 +59,6 @@ st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 
 # --- RENTAL COMPARISON ---
 st.header("2. Rental Market Comparison")
-rent_monthly = st.slider("Monthly Rent (£)", 500, 5000, 2250, step=50)
-gross_yield = st.slider("Gross Rental Yield (%)", 1.0, 10.0, 4.5)
-net_yield = st.slider("Net Rental Yield (%)", 0.5, 6.0, 2.5)
 
 st.markdown("""
 **Why Gross and Net Yields Matter:**
@@ -73,29 +70,71 @@ st.markdown("""
     - whether renting is truly cheaper than buying
 """)
 
+gross_yield = st.slider("Gross Rental Yield (%)", 1.0, 10.0, 4.5)
+net_yield = st.slider("Net Rental Yield (%)", 0.5, 6.0, 2.5)
+rent_monthly = st.slider("Monthly Rent (£)", 500, 5000, 2250, step=50)
+
 # --- FEES ---
 st.header("3. Buying Costs & Fees")
-remortgage_times = st.slider("Number of Remortgages (every 5 years typical)", 0, 10, 5)
-transaction_fees = st.number_input("Transaction Fees (£)", value=15_000, step=1000)
+
+st.markdown("""
+💡 **Why Remortgaging Matters**
+
+- Most mortgages have a fixed rate for 2–5 years.
+- After that, you usually remortgage to avoid high variable rates.
+- Each remortgage costs legal, valuation, and arrangement fees.
+- Over decades, these costs add up significantly.
+""")
+
+remortgage_times = st.slider(
+    "Number of Remortgages (every ~5 years typical)",
+    0, 10, 5
+)
+remortgage_cost_per_time = st.number_input(
+    "Estimated Cost per Remortgage (£)",
+    value=1_500,
+    step=100
+)
+
+total_remortgage_costs = remortgage_times * remortgage_cost_per_time
+
+base_transaction_fees = st.number_input(
+    "Other Transaction Fees (e.g. legal, searches) (£)",
+    value=7_500,
+    step=500
+)
+
+transaction_fees = base_transaction_fees + total_remortgage_costs
+st.metric("Total Transaction Fees", f"£{transaction_fees:,.0f}")
+
 stamp_duty = calculate_stamp_duty(house_price)
 st.metric("Stamp Duty (Estimated)", f"£{stamp_duty:,.0f}")
+
 renovation_costs = st.number_input("Renovation Costs (£, optional)", value=0, step=1000)
 renovation_uplift = st.slider("Estimated % Uplift from Renovations", 0.0, 50.0, 0.0, step=1.0)
 
 fees_total = transaction_fees + stamp_duty + renovation_costs
 
 # --- RISK WHEEL ---
-st.header("🌀 Risk Wheel – Choose Your Market Scenario")
+st.header("🌀 Risk Wheel – Market Scenario")
 
-risk_scenario = st.selectbox(
-    "Pick a scenario to simulate:",
-    [
-        "Base Case (steady market)",
-        "Interest Rate Spike / Asset Crash",
-        "Interest Rates Drop / Asset Boom",
-        "Major Structural Repairs"
-    ]
-)
+spin_wheel = st.checkbox("🎲 Spin the wheel randomly!", value=True)
+
+scenarios = [
+    "Base Case (steady market)",
+    "Interest Rate Spike / Asset Crash",
+    "Interest Rates Drop / Asset Boom",
+    "Major Structural Repairs"
+]
+
+if spin_wheel:
+    risk_scenario = random.choice(scenarios)
+    st.write(f"**Random scenario selected:** {risk_scenario}")
+else:
+    risk_scenario = st.selectbox(
+        "Or manually choose a scenario:",
+        scenarios
+    )
 
 # Adjust parameters based on scenario
 if risk_scenario == "Interest Rate Spike / Asset Crash":
@@ -164,7 +203,7 @@ summary_text = f"""
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
 - **ROI based on total cash invested:** {roi*100:.2f}%
 
-**Net financial outcome vs renting:** {"Ahead" if difference_vs_rent > 0 else "Behind"} by £{abs(difference_vs_rent):,.0f}
+**Net financial outcome vs renting:** {"Up" if difference_vs_rent > 0 else "Down"} by £{abs(difference_vs_rent):,.0f}
 """
 
 st.markdown(summary_text)
@@ -188,6 +227,3 @@ st.line_chart(historical.set_index("End Year")["London Return %"])
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
-
-
-
