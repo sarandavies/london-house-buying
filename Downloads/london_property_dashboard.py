@@ -266,7 +266,7 @@ with col2:
         "Alternative Annual Investment Return (%)",
         0.0, 10.0, 4.0, step=0.5
     )
-    invested_alt = (deposit) - deposit * ((1 + alt_investment_return / 100) ** sale_year)
+    invested_alt = deposit * ((1 + alt_investment_return / 100) ** sale_year)
 
     st.metric("Potential Alternative Investment (£)", f"£{invested_alt:,.0f}")
 
@@ -282,7 +282,7 @@ summary_text = f"""
 - **Net cash after deducting all costs and interest:** £{final_cash_after_sale:,.0f}
 - **Estimated IRR:** {irr_before_tax*100:.2f}%
 - **ROI based on cash invested:** {roi*100:.2f}%
-- **Potential alternative investment value change:** £{invested_alt:,.0f}
+- **Potential alternative investment portfolio value:** £{invested_alt:,.0f}
 
 **Net financial outcome vs renting:** {"Up" if difference_vs_rent > 0 else "Down"} by £{abs(difference_vs_rent):,.0f}
 """
