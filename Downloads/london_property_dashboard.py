@@ -184,7 +184,7 @@ buying_costs = (
     + total_interest_paid
 )
 
-unrecoverable_buying = buying_costs + total_interest_paid
+unrecoverable_buying = buying_costs
 
 gross_proceeds = sale_value - sale_fees - principal_remaining
 
@@ -228,7 +228,7 @@ with col1:
     st.metric("House Sale Value", f"£{sale_value:,.0f}")
     st.metric("Total Mortgage Paid", f"£{total_mortgage_paid:,.0f}")
     st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
-    st.metric("Unrecoverable Cost of Buying (£)", f"£{unrecoverable_buying:,.0f}")
+    st.metric("Unrecoverable Cost of Buying (£) - e.g. stamp duty, interest, & maintenance", f"£{unrecoverable_buying:,.0f}")
     st.metric("Net Cash After Buying", f"£{net_cash_from_sale:,.0f}")
 
 with col2:
