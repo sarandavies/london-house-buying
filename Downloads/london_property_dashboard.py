@@ -210,9 +210,7 @@ sale_value *= (1 + renovation_uplift / 100)
 sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 sale_fees = sale_value * (sale_fee_rate / 100)
 
-gross_proceeds = sale_value - sale_fees - loan_amount
-
-# --- Calculate interest paid over years held ---
+# --- Calculate interest paid and remaining loan ---
 principal_remaining = loan_amount
 total_interest_paid = 0
 
@@ -222,17 +220,20 @@ for _ in range(sale_year * 12):
     total_interest_paid += interest_month
     principal_remaining -= principal_payment
     if principal_remaining <= 0:
+        principal_remaining = 0
         break
 
-# Calculate net cash after sale
+# Correct calculation: subtract remaining balance
+gross_proceeds = sale_value - sale_fees - principal_remaining
+
 net_proceeds = gross_proceeds - fees_total
-final_cash_after_sale = net_proceeds - total_interest_paid
+final_cash_after_sale = net_proceeds
 
 # ROI based on deposit
 roi = (final_cash_after_sale - deposit) / deposit if deposit > 0 else 0.0
 
 irr_before_tax = npf.irr(
-    [-deposit - fees_total] + [0] * (sale_year - 1) + [net_proceeds]
+    [-deposit - fees_total] + [0] * (sale_year - 1) + [gross_proceeds]
 )
 
 # --- UNRECOVERABLE COSTS ---
@@ -305,4 +306,5 @@ st.line_chart(historical.set_index("End Year")["London Return %"])
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
+
 
