@@ -63,7 +63,6 @@ st.metric("Monthly Mortgage Payment", f"£{monthly_payment:,.0f}")
 # --- RENTAL COMPARISON ---
 st.header("2. Rental Market Comparison")
 
-
 st.markdown("""
 **Why Gross and Net Yields Matter:**
 
@@ -80,7 +79,6 @@ rent_monthly = st.slider("Monthly Rent (£)", 500, 5000, 2250, step=50)
 
 # --- FEES ---
 st.header("3. Buying Costs & Fees")
-
 
 remortgage_times = st.slider(
     "Number of Remortgages (every ~5 years typical)",
@@ -116,7 +114,10 @@ stamp_duty = calculate_stamp_duty(house_price)
 st.metric("Stamp Duty (Estimated)", f"£{stamp_duty:,.0f}")
 
 renovation_costs = st.number_input("Renovation Costs (£, optional)", value=0, step=1000)
-renovation_uplift = st.slider("Estimated % Uplift from Renovations - will vary depending on work done, but 2-5% would be a conservative estimate", 0.0, 50.0, 0.0, step=1.0)
+renovation_uplift = st.slider(
+    "Estimated % Uplift from Renovations (e.g. 2-5% conservative for minor works)",
+    0.0, 50.0, 0.0, step=1.0
+)
 
 # --- ANNUAL OWNERSHIP COSTS ---
 st.header("4. Annual Ownership Costs")
@@ -136,7 +137,10 @@ Even without major renovations, a typical rule of thumb is:
 This can add £3–10k/year in London, depending on property size and age.
 """)
 
-annual_maintenance_rate = st.slider("Estimated Annual Maintenance Cost (% of property value)", 0.0, 2.0, 0.5, step=0.1)
+annual_maintenance_rate = st.slider(
+    "Estimated Annual Maintenance Cost (% of property value)",
+    0.0, 2.0, 0.5, step=0.1
+)
 annual_maintenance_cost = house_price * (annual_maintenance_rate / 100)
 total_maintenance_cost = annual_maintenance_cost * term_years
 
@@ -200,10 +204,8 @@ sale_year = st.slider("House Sale Year", 1, 50, 5)
 appreciation_rate = st.slider("Expected Annual Property Appreciation (%)", -5.0, 10.0, 2.6)
 price_volatility = st.slider("Price Volatility (Standard Deviation, %)", 0.0, 10.0, 2.0, step=0.5)
 
-# Apply risk scenario adjustment
 adjusted_appreciation_rate = appreciation_rate + appreciation_rate_adj
 
-# Simulate volatility:
 sale_value = house_price
 price_path = []
 
@@ -214,34 +216,43 @@ for y in range(sale_year):
 
 sale_value *= (1 + renovation_uplift / 100)
 
-sale_fees = sale_value * 0.03  # Assume 3% sale fee
+sale_fees = sale_value * 0.03
 net_proceeds = sale_value - sale_fees - loan_amount
 
 irr_before_tax = npf.irr([-deposit - fees_total] + [0]*(sale_year-1) + [net_proceeds])
 
-# Calculate ROI relative to total outlay
 total_outlay = deposit + fees_total
 roi = (net_proceeds - total_outlay) / total_outlay
 
-# --- OPPORTUNITY COST ---
-st.header("7. Opportunity Cost of Investing Instead")
-
-st.markdown("""
-Instead of buying, you could invest your deposit elsewhere.
-This estimates how much you'd have if you invested it in other assets (e.g. stocks, bonds).
-""")
-
-alt_investment_return = st.slider("Alternative Annual Investment Return (%)", 0.0, 10.0, 4.0, step=0.5)
-invested_alt = deposit * ((1 + alt_investment_return / 100) ** sale_year)
-
-# Compare owning vs renting
 buy_net_result = net_proceeds - mortgage_unrecoverable
 difference_vs_rent = buy_net_result + rent_unrecoverable
 
-st.metric("Expected Sale Value (£)", f"£{sale_value:,.0f}")
-st.metric("IRR Before Tax", f"{irr_before_tax*100:.2f}%")
-st.metric("Return on Investment (ROI)", f"{roi*100:.2f}%")
-st.metric("Potential Alternative Investment (£)", f"£{invested_alt:,.0f}")
+# --- PROPERTY METRICS ---
+st.header("7. Property Financial Metrics")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.metric("Expected Sale Value (£)", f"£{sale_value:,.0f}")
+    st.metric("IRR Before Tax", f"{irr_before_tax*100:.2f}%")
+    st.metric("Return on Investment (ROI)", f"{roi*100:.2f}%")
+
+# --- OPPORTUNITY COST ---
+with col2:
+    st.header("Alternative Investment Scenario")
+
+    st.markdown("""
+    Instead of buying, you could invest your deposit elsewhere.
+    This estimates how much you'd have if you invested it in other assets (e.g. stocks, bonds).
+    """)
+
+    alt_investment_return = st.slider(
+        "Alternative Annual Investment Return (%)",
+        0.0, 10.0, 4.0, step=0.5
+    )
+    invested_alt = deposit * ((1 + alt_investment_return / 100) ** sale_year)
+
+    st.metric("Potential Alternative Investment (£)", f"£{invested_alt:,.0f}")
 
 # --- SUMMARY ---
 st.header("8. Plain-English Summary")
@@ -277,10 +288,8 @@ st.dataframe(historical)
 
 st.line_chart(historical.set_index("End Year")["London Return %"])
 
-# Optional price path chart from simulation
 if st.checkbox("Show Simulated House Price Path"):
     st.line_chart(pd.Series(price_path, name="Simulated Price"))
 
 # --- FOOTER ---
 st.caption("I made this dashboard for fun - This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.")
-
