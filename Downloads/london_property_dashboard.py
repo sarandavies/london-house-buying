@@ -229,12 +229,13 @@ with col1:
     st.metric("Total Mortgage Paid", f"£{total_mortgage_paid:,.0f}")
     st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
     st.metric("Unrecoverable Cost of Buying (£) - e.g. stamp duty, interest, renovations, maintenance", f"£{unrecoverable_buying:,.0f}")
-    st.metric("Net Assets Post Sale - e.g. proceeds of sale post unrecoverable costs (if this is less than your initial deposit then that's bad news", f"£{net_cash_from_sale:,.0f}")
+    st.metric("Net Assets Post Sale - e.g. proceeds of sale post unrecoverable costs (if this is less than your initial deposit then that's bad news)", f"£{net_cash_from_sale:,.0f}")
 
 with col2:
     st.subheader("🏠 Renting Scenario")
     st.metric("Total Rent Paid", f"£{total_rent_paid:,.0f}")
     st.metric("Deposit Value if Renting + Investing", f"£{deposit_future_value:,.0f}")
+
 
 # --- SUMMARY ---
 st.header("7. Plain-English Summary")
@@ -261,6 +262,17 @@ summary_text = f"""
 """
 
 st.markdown(summary_text)
+
+# Cashflow comparison
+monthly_difference = rent_monthly - base_monthly_payment
+annual_difference = monthly_difference * 12
+total_difference = annual_difference * sale_year
+
+st.subheader("Side note on monthly rent vs mortgage costs")
+
+st.metric("Monthly Cost Difference (Rent - Mortgage)", f"£{monthly_difference:,.0f}")
+st.metric("Total Cashflow Difference Over Period", f"£{total_difference:,.0f}")
+
 
 # --- DATA VISUALISATION ---
 st.header("8. Historical Appreciation Data")
