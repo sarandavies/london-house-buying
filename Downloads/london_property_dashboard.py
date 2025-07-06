@@ -194,30 +194,29 @@ if deposit > 0:
     )
 irr_display = f"{irr_before_tax*100:.2f}%" if irr_before_tax is not None else "N/A"
 
-# --- RENT CALCULATION AND SURPLUS INVESTING ---
+# --- ALTERNATIVE INVESTMENT SETTINGS ---
+alt_investment_return = st.slider(
+    "Alternative Annual Investment Return (%)",
+    0.0, 10.0, 4.0, step=0.5
+)
 
+# --- RENT CALCULATION AND SURPLUS INVESTING ---
 total_rent_paid = 0
 current_rent = rent_monthly
 monthly_return_rate = alt_investment_return / 100 / 12
 
-# Track cashflow difference accumulation
 future_value_cashflow_difference = 0
 
 for year in range(sale_year):
     for month in range(12):
-        # Monthly rent in this period
         monthly_rent_now = current_rent
-
-        # Difference vs mortgage
         monthly_difference = monthly_payment - monthly_rent_now
 
-        # If positive, renting is cheaper → surplus available to invest
         if monthly_difference > 0:
             future_value_cashflow_difference = (
                 (future_value_cashflow_difference + monthly_difference)
                 * (1 + monthly_return_rate)
             )
-        # If negative, renting is more expensive → cash outflow lowers future value
         else:
             deficit = abs(monthly_difference)
             future_value_cashflow_difference = (
@@ -225,7 +224,6 @@ for year in range(sale_year):
                 * (1 + monthly_return_rate)
             )
 
-        # Add to total rent paid
         total_rent_paid += monthly_rent_now
 
     current_rent *= (1 + rent_growth / 100)
@@ -235,9 +233,7 @@ average_rent_monthly = total_rent_paid / (sale_year * 12)
 # The future value of the deposit invested
 deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year)
 
-# Net worth of the renter
 renter_net_worth = deposit_future_value + future_value_cashflow_difference
-
 
 # --- FINAL DIFFERENCE ---
 difference = net_cash_from_sale - renter_net_worth
@@ -263,6 +259,7 @@ with col2:
     st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
     st.metric("Deposit Value if Renting + Investing", f"£{deposit_future_value:,.0f}")
     st.metric("Total Renter Net Worth", f"£{renter_net_worth:,.0f}")
+    st.metric("Future Value of Cashflow Difference", f"£{future_value_cashflow_difference:,.0f}")
 
 # --- SUMMARY ---
 st.header("7. Plain-English Summary")
@@ -294,8 +291,8 @@ st.markdown(summary_text)
 st.subheader("Side note on monthly rent vs mortgage costs")
 
 st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
-st.metric("Monthly Cost Difference (Mortgage - Avg Rent) - a bit simple as mortgage rates also change over time...", f"£{monthly_difference_vs_avg_rent:,.0f}")
-st.metric("Total Cashflow Difference Over Period (positive means renting leaves cash left over to invest and vice versa for buying)", f"£{total_difference:,.0f}")
+st.metric("Monthly Cost Difference (Mortgage - Avg Rent)", f"£{monthly_difference_vs_avg_rent:,.0f}")
+st.metric("Total Cashflow Difference Over Period", f"£{total_difference:,.0f}")
 
 # --- DATA VISUALISATION ---
 st.header("8. Historical Appreciation Data")
