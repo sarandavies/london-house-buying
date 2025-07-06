@@ -216,7 +216,7 @@ deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year
 monthly_return_rate = alt_investment_return / 100 / 12
 future_value_surplus = 0
 
-current_rent = rent_monthly
+current_rent = average_rent_monthly
 
 for year in range(sale_year):
     for month in range(12):
