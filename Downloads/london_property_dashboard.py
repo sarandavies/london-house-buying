@@ -187,9 +187,12 @@ net_cash_from_sale = gross_proceeds - (stamp_duty + renovation_costs + transacti
 
 roi = (net_cash_from_sale - deposit) / deposit if deposit > 0 else 0.0
 
-irr_before_tax = npf.irr(
-    [-deposit - (buying_costs - total_interest_paid)] + [0] * (sale_year - 1) + [gross_proceeds]
-)
+irr_before_tax = None
+if deposit > 0:
+    irr_before_tax = npf.irr(
+        [-deposit - (buying_costs - total_interest_paid)] + [0] * (sale_year - 1) + [gross_proceeds]
+    )
+irr_display = f"{irr_before_tax*100:.2f}%" if irr_before_tax is not None else "N/A"
 
 # --- RENT CALCULATION ---
 total_rent_paid = 0
@@ -201,27 +204,35 @@ for year in range(sale_year):
 
 average_rent_monthly = total_rent_paid / (sale_year * 12)
 
-# --- SURPLUS INVESTING IF RENTING IS CHEAPER ---
-monthly_difference_vs_avg_rent = monthly_payment - average_rent_monthly
-future_value_surplus = 0
-
+# --- ALTERNATIVE INVESTMENT OF DEPOSIT ---
 alt_investment_return = st.slider(
     "Alternative Annual Investment Return (%)",
     0.0, 10.0, 4.0, step=0.5
 )
 
-monthly_return_rate = alt_investment_return / 100 / 12
-
-if monthly_difference_vs_avg_rent < 0:
-    monthly_surplus = abs(monthly_difference_vs_avg_rent)
-    for month in range(sale_year * 12):
-        future_value_surplus = (future_value_surplus + monthly_surplus) * (1 + monthly_return_rate)
-
 deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year)
+
+# --- SURPLUS INVESTING IF RENTING IS CHEAPER ---
+monthly_return_rate = alt_investment_return / 100 / 12
+future_value_surplus = 0
+
+current_rent = rent_monthly
+
+for year in range(sale_year):
+    for month in range(12):
+        if current_rent < monthly_payment:
+            surplus = monthly_payment - current_rent
+            future_value_surplus = (future_value_surplus + surplus) * (1 + monthly_return_rate)
+        # else: renting costs more; no surplus to invest
+    current_rent *= (1 + rent_growth / 100)
 
 renter_net_worth = deposit_future_value + future_value_surplus
 
+# --- FINAL DIFFERENCE ---
 difference = net_cash_from_sale - renter_net_worth
+monthly_difference_vs_avg_rent = monthly_payment - average_rent_monthly
+annual_difference = monthly_difference_vs_avg_rent * 12
+total_difference = annual_difference * sale_year
 
 # --- COLUMNS ---
 st.header("6. Scenario Comparison")
@@ -263,7 +274,7 @@ summary_text = f"""
 - **Deposit value if renting (including investment gains):** £{deposit_future_value:,.0f}
 - **Future value of surplus cashflow if renting cheaper:** £{future_value_surplus:,.0f}
 - **Total rent paid over same period:** £{total_rent_paid:,.0f}
-- **Estimated IRR on buying:** {irr_before_tax*100:.2f}%
+- **Estimated IRR on buying:** {irr_display}
 - **ROI on cash invested:** {roi*100:.2f}%
 - {compare_text}
 """
@@ -271,14 +282,11 @@ summary_text = f"""
 st.markdown(summary_text)
 
 # --- CASHFLOW COMPARISON ---
-annual_difference = monthly_difference_vs_avg_rent * 12
-total_difference = annual_difference * sale_year
-
 st.subheader("Side note on monthly rent vs mortgage costs")
 
 st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
-st.metric("Monthly Cost Difference (Mortgage - Avg Rent)", f"£{monthly_difference_vs_avg_rent:,.0f}")
-st.metric("Total Cashflow Difference Over Period (this should also factor into your net worth and be reinvested - if positive then renting beneficial to rent)", f"£{total_difference:,.0f}")
+st.metric("Monthly Cost Difference (Mortgage - Avg Rent) - a bit simple as mortgage rates also change over time...", f"£{monthly_difference_vs_avg_rent:,.0f}")
+st.metric("Total Cashflow Difference Over Period (positive means renting leaves cash left over to invest and vice versa for buying)", f"£{total_difference:,.0f}")
 
 # --- DATA VISUALISATION ---
 st.header("8. Historical Appreciation Data")
