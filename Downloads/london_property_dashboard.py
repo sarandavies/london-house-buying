@@ -278,7 +278,7 @@ st.subheader("Side note on monthly rent vs mortgage costs")
 
 st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
 st.metric("Monthly Cost Difference (Mortgage - Avg Rent)", f"£{monthly_difference_vs_avg_rent:,.0f}")
-st.metric("Total Cashflow Difference Over Period", f"£{total_difference:,.0f}")
+st.metric("Total Cashflow Difference Over Period (this should also factor into your net worth and be reinvested - if positive then renting beneficial to rent)", f"£{total_difference:,.0f}")
 
 # --- DATA VISUALISATION ---
 st.header("8. Historical Appreciation Data")
