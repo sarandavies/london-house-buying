@@ -14,10 +14,11 @@ st.markdown("""
 This app helps you compare buying vs renting.
 
 It calculates:
-- your true cash left after buying
+- your cash left after buying
 - total rent paid over time
 - your alternative investment outcome
-- a clear, single difference between the two options
+- the effect of monthly cashflow differences
+- a simplistic, single difference between the two options
 """)
 
 # --- HELPER FUNCTIONS ---
@@ -58,7 +59,7 @@ base_monthly_rate = base_interest_rate / 100 / 12
 base_monthly_payment = npf.pmt(base_monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
 
 st.metric(
-    "Estimated Monthly Mortgage Payment (estimate subject to market volatility)",
+    "Estimated Monthly Mortgage Payment (estimate subject to market volatility) - this is a bit simplistic as mortgage rates could change quite a lot...",
     f"£{base_monthly_payment:,.0f}"
 )
 
@@ -154,7 +155,6 @@ sale_value *= (1 + renovation_uplift / 100)
 sale_fees = sale_value * (sale_fee_rate / 100)
 
 # --- MORTGAGE CALCULATIONS ---
-# Calculate total interest paid and principal balance
 principal_remaining = loan_amount
 total_interest_paid = 0
 months = min(sale_year * 12, n_payments)
@@ -184,13 +184,8 @@ buying_costs = (
     + total_interest_paid
 )
 
-unrecoverable_buying = buying_costs
-
 gross_proceeds = sale_value - sale_fees - principal_remaining
-
-net_cash_from_sale = gross_proceeds - (
-    stamp_duty + renovation_costs + transaction_fees + total_maintenance_cost
-)
+net_cash_from_sale = gross_proceeds - (stamp_duty + renovation_costs + transaction_fees + total_maintenance_cost)
 
 roi = (net_cash_from_sale - deposit) / deposit if deposit > 0 else 0.0
 
@@ -206,14 +201,28 @@ for year in range(sale_year):
     total_rent_paid += current_rent * 12
     current_rent *= (1 + rent_growth / 100)
 
-# --- ALTERNATIVE INVESTMENT ---
+# --- SURPLUS INVESTING IF RENTING IS CHEAPER ---
+monthly_difference = base_monthly_payment - rent_monthly
+
+future_value_surplus = 0
 alt_investment_return = st.slider(
     "Alternative Annual Investment Return (%)",
     0.0, 10.0, 4.0, step=0.5
 )
+
+monthly_return_rate = alt_investment_return / 100 / 12
+
+if monthly_difference > 0:
+    monthly_surplus = monthly_difference
+    for month in range(sale_year * 12):
+        future_value_surplus = (future_value_surplus + monthly_surplus) * (1 + monthly_return_rate)
+else:
+    future_value_surplus = 0
+
+# --- ALTERNATIVE INVESTMENT OF DEPOSIT ---
 deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year)
 
-renter_net_worth = deposit_future_value
+renter_net_worth = deposit_future_value + future_value_surplus
 
 # --- FINAL DIFFERENCE ---
 difference = net_cash_from_sale - renter_net_worth
@@ -228,14 +237,14 @@ with col1:
     st.metric("House Sale Value", f"£{sale_value:,.0f}")
     st.metric("Total Mortgage Paid", f"£{total_mortgage_paid:,.0f}")
     st.metric("Total Interest Paid", f"£{total_interest_paid:,.0f}")
-    st.metric("Unrecoverable Cost of Buying (£) - e.g. stamp duty, interest, renovations, maintenance", f"£{unrecoverable_buying:,.0f}")
-    st.metric("Net Assets Post Sale - e.g. proceeds of sale post unrecoverable costs (if this is less than your initial deposit then that's bad news)", f"£{net_cash_from_sale:,.0f}")
+    st.metric("Net Cash After Buying (sale minus all costs and interest)", f"£{net_cash_from_sale:,.0f}")
 
 with col2:
     st.subheader("🏠 Renting Scenario")
     st.metric("Total Rent Paid", f"£{total_rent_paid:,.0f}")
     st.metric("Deposit Value if Renting + Investing", f"£{deposit_future_value:,.0f}")
-
+    st.metric("Future Value of Surplus Cashflow (if renting cheaper)", f"£{future_value_surplus:,.0f}")
+    st.metric("Total Renter Net Worth", f"£{renter_net_worth:,.0f}")
 
 # --- SUMMARY ---
 st.header("7. Plain-English Summary")
@@ -253,8 +262,9 @@ else:
 summary_text = f"""
 - **Buying costs (stamp duty, fees, renovations, maintenance, interest):** £{buying_costs:,.0f}
 - **Gross proceeds from selling house:** £{gross_proceeds:,.0f}
-- **Net cash result from buying:** {net_text}
+- **Net cash after buying:** {net_text}
 - **Deposit value if renting (including investment gains):** £{deposit_future_value:,.0f}
+- **Future value of surplus cashflow if renting cheaper:** £{future_value_surplus:,.0f}
 - **Total rent paid over same period:** £{total_rent_paid:,.0f}
 - **Estimated IRR on buying:** {irr_before_tax*100:.2f}%
 - **ROI on cash invested:** {roi*100:.2f}%
@@ -264,15 +274,13 @@ summary_text = f"""
 st.markdown(summary_text)
 
 # Cashflow comparison
-monthly_difference = rent_monthly - base_monthly_payment
 annual_difference = monthly_difference * 12
 total_difference = annual_difference * sale_year
 
 st.subheader("Side note on monthly rent vs mortgage costs")
 
-st.metric("Monthly Cost Difference (Rent - Mortgage)", f"£{monthly_difference:,.0f}")
+st.metric("Monthly Cost Difference (Mortgage - Rent)", f"£{monthly_difference:,.0f}")
 st.metric("Total Cashflow Difference Over Period", f"£{total_difference:,.0f}")
-
 
 # --- DATA VISUALISATION ---
 st.header("8. Historical Appreciation Data")
