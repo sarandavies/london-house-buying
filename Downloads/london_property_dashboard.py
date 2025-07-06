@@ -194,39 +194,50 @@ if deposit > 0:
     )
 irr_display = f"{irr_before_tax*100:.2f}%" if irr_before_tax is not None else "N/A"
 
-# --- RENT CALCULATION ---
+# --- RENT CALCULATION AND SURPLUS INVESTING ---
+
 total_rent_paid = 0
 current_rent = rent_monthly
+monthly_return_rate = alt_investment_return / 100 / 12
+
+# Track cashflow difference accumulation
+future_value_cashflow_difference = 0
 
 for year in range(sale_year):
-    total_rent_paid += current_rent * 12
+    for month in range(12):
+        # Monthly rent in this period
+        monthly_rent_now = current_rent
+
+        # Difference vs mortgage
+        monthly_difference = monthly_payment - monthly_rent_now
+
+        # If positive, renting is cheaper → surplus available to invest
+        if monthly_difference > 0:
+            future_value_cashflow_difference = (
+                (future_value_cashflow_difference + monthly_difference)
+                * (1 + monthly_return_rate)
+            )
+        # If negative, renting is more expensive → cash outflow lowers future value
+        else:
+            deficit = abs(monthly_difference)
+            future_value_cashflow_difference = (
+                (future_value_cashflow_difference - deficit)
+                * (1 + monthly_return_rate)
+            )
+
+        # Add to total rent paid
+        total_rent_paid += monthly_rent_now
+
     current_rent *= (1 + rent_growth / 100)
 
 average_rent_monthly = total_rent_paid / (sale_year * 12)
 
-# --- ALTERNATIVE INVESTMENT OF DEPOSIT ---
-alt_investment_return = st.slider(
-    "Alternative Annual Investment Return (%)",
-    0.0, 10.0, 4.0, step=0.5
-)
-
+# The future value of the deposit invested
 deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year)
 
-# --- SURPLUS INVESTING IF RENTING IS CHEAPER ---
-monthly_return_rate = alt_investment_return / 100 / 12
-future_value_surplus = 0
+# Net worth of the renter
+renter_net_worth = deposit_future_value + future_value_cashflow_difference
 
-current_rent = average_rent_monthly
-
-for year in range(sale_year):
-    for month in range(12):
-        if current_rent < monthly_payment:
-            surplus = monthly_payment - current_rent
-            future_value_surplus = (future_value_surplus + surplus) * (1 + monthly_return_rate)
-        # else: renting costs more; no surplus to invest
-    current_rent *= (1 + rent_growth / 100)
-
-renter_net_worth = deposit_future_value + future_value_surplus
 
 # --- FINAL DIFFERENCE ---
 difference = net_cash_from_sale - renter_net_worth
