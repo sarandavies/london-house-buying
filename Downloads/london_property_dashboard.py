@@ -258,7 +258,6 @@ with col2:
     st.metric("Total Rent Paid", f"£{total_rent_paid:,.0f}")
     st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
     st.metric("Deposit Value if Renting + Investing", f"£{deposit_future_value:,.0f}")
-    st.metric("Total Renter Net Worth", f"£{renter_net_worth:,.0f}")
     st.metric("Future Value of Cashflow Difference", f"£{future_value_cashflow_difference:,.0f}")
 
 # --- SUMMARY ---
@@ -292,7 +291,7 @@ st.subheader("Side note on monthly rent vs mortgage costs")
 
 st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
 st.metric("Monthly Cost Difference (Mortgage - Avg Rent)", f"£{monthly_difference_vs_avg_rent:,.0f}")
-st.metric("Total Cashflow Difference Over Period", f"£{total_difference:,.0f}")
+st.metric("Total Cashflow Difference Over Period (a bit simplistic as it assumes mortgage cost is same)", f"£{total_difference:,.0f}")
 
 # --- DATA VISUALISATION ---
 st.header("8. Historical Appreciation Data")
