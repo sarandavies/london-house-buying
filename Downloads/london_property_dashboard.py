@@ -18,7 +18,7 @@ It calculates:
 - total rent paid over time
 - your alternative investment outcome
 - the effect of monthly cashflow differences
-- a simplistic, single difference between the two options
+- a single net worth difference between the two options
 """)
 
 # --- HELPER FUNCTIONS ---
@@ -59,7 +59,7 @@ base_monthly_rate = base_interest_rate / 100 / 12
 base_monthly_payment = npf.pmt(base_monthly_rate, n_payments, -loan_amount) if loan_amount > 0 else 0
 
 st.metric(
-    "Estimated Monthly Mortgage Payment (estimate subject to market volatility) - this is a bit simplistic as mortgage rates could change quite a lot...",
+    "Estimated Monthly Mortgage Payment (estimate subject to market volatility)",
     f"£{base_monthly_payment:,.0f}"
 )
 
@@ -148,10 +148,8 @@ sale_fee_rate = st.slider("Sale Fee (% of sale value)", 0.0, 5.0, 3.0, step=0.1)
 
 adjusted_appreciation_rate = appreciation_rate + appreciation_rate_adj
 
-# Calculate sale price
 sale_value = house_price * ((1 + adjusted_appreciation_rate / 100) ** sale_year)
 sale_value *= (1 + renovation_uplift / 100)
-
 sale_fees = sale_value * (sale_fee_rate / 100)
 
 # --- MORTGAGE CALCULATIONS ---
@@ -201,10 +199,12 @@ for year in range(sale_year):
     total_rent_paid += current_rent * 12
     current_rent *= (1 + rent_growth / 100)
 
-# --- SURPLUS INVESTING IF RENTING IS CHEAPER ---
-monthly_difference = base_monthly_payment - rent_monthly
+average_rent_monthly = total_rent_paid / (sale_year * 12)
 
+# --- SURPLUS INVESTING IF RENTING IS CHEAPER ---
+monthly_difference_vs_avg_rent = monthly_payment - average_rent_monthly
 future_value_surplus = 0
+
 alt_investment_return = st.slider(
     "Alternative Annual Investment Return (%)",
     0.0, 10.0, 4.0, step=0.5
@@ -212,19 +212,15 @@ alt_investment_return = st.slider(
 
 monthly_return_rate = alt_investment_return / 100 / 12
 
-if monthly_difference > 0:
-    monthly_surplus = monthly_difference
+if monthly_difference_vs_avg_rent < 0:
+    monthly_surplus = abs(monthly_difference_vs_avg_rent)
     for month in range(sale_year * 12):
         future_value_surplus = (future_value_surplus + monthly_surplus) * (1 + monthly_return_rate)
-else:
-    future_value_surplus = 0
 
-# --- ALTERNATIVE INVESTMENT OF DEPOSIT ---
 deposit_future_value = deposit * ((1 + alt_investment_return / 100) ** sale_year)
 
 renter_net_worth = deposit_future_value + future_value_surplus
 
-# --- FINAL DIFFERENCE ---
 difference = net_cash_from_sale - renter_net_worth
 
 # --- COLUMNS ---
@@ -242,6 +238,7 @@ with col1:
 with col2:
     st.subheader("🏠 Renting Scenario")
     st.metric("Total Rent Paid", f"£{total_rent_paid:,.0f}")
+    st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
     st.metric("Deposit Value if Renting + Investing", f"£{deposit_future_value:,.0f}")
     st.metric("Future Value of Surplus Cashflow (if renting cheaper)", f"£{future_value_surplus:,.0f}")
     st.metric("Total Renter Net Worth", f"£{renter_net_worth:,.0f}")
@@ -273,13 +270,14 @@ summary_text = f"""
 
 st.markdown(summary_text)
 
-# Cashflow comparison
-annual_difference = monthly_difference * 12
+# --- CASHFLOW COMPARISON ---
+annual_difference = monthly_difference_vs_avg_rent * 12
 total_difference = annual_difference * sale_year
 
 st.subheader("Side note on monthly rent vs mortgage costs")
 
-st.metric("Monthly Cost Difference (Mortgage - Rent)", f"£{monthly_difference:,.0f}")
+st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
+st.metric("Monthly Cost Difference (Mortgage - Avg Rent)", f"£{monthly_difference_vs_avg_rent:,.0f}")
 st.metric("Total Cashflow Difference Over Period", f"£{total_difference:,.0f}")
 
 # --- DATA VISUALISATION ---
