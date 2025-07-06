@@ -251,7 +251,6 @@ with col2:
     st.metric("Total Rent Paid", f"£{total_rent_paid:,.0f}")
     st.metric("Average Monthly Rent Over Period", f"£{average_rent_monthly:,.0f}")
     st.metric("Deposit Value if Renting + Investing", f"£{deposit_future_value:,.0f}")
-    st.metric("Future Value of Surplus Cashflow (if renting cheaper)", f"£{future_value_surplus:,.0f}")
     st.metric("Total Renter Net Worth", f"£{renter_net_worth:,.0f}")
 
 # --- SUMMARY ---
@@ -272,7 +271,6 @@ summary_text = f"""
 - **Gross proceeds from selling house:** £{gross_proceeds:,.0f}
 - **Net cash after buying:** {net_text}
 - **Deposit value if renting (including investment gains):** £{deposit_future_value:,.0f}
-- **Future value of surplus cashflow if renting cheaper:** £{future_value_surplus:,.0f}
 - **Total rent paid over same period:** £{total_rent_paid:,.0f}
 - **Estimated IRR on buying:** {irr_display}
 - **ROI on cash invested:** {roi*100:.2f}%
