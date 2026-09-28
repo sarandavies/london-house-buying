@@ -1,129 +1,1367 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": 5,
-   "id": "026e79c9-f760-4617-b56a-799a6ac09d38",
-   "metadata": {},
-   "outputs": [
-    {
-     "data": {
-      "text/plain": [
-       "DeltaGenerator()"
-      ]
-     },
-     "execution_count": 5,
-     "metadata": {},
-     "output_type": "execute_result"
+import streamlit as st
+import numpy as np
+import numpy_financial as npf
+import pandas as pd
+
+
+# ============================================================
+# PAGE SETUP
+# ============================================================
+
+st.set_page_config(
+    page_title="London Buy vs Rent Calculator",
+    layout="wide"
+)
+
+st.title("🏠 London Buy vs Rent Calculator")
+
+st.markdown(
+    """
+Compare buying a London property with renting and investing the cash you would
+otherwise put into the purchase.
+
+The model works month by month so that both options start with the same financial
+resources and differences in housing costs are invested (or withdrawn) over time.
+"""
+)
+
+
+# ============================================================
+# HELPER FUNCTIONS
+# ============================================================
+
+def calculate_standard_sdlt(
+    price: float,
+    additional_property: bool = False
+) -> float:
+    """
+    England / Northern Ireland residential SDLT rates
+    applying from 1 April 2025.
+    """
+
+    bands = [
+        (125_000, 0.00),
+        (250_000, 0.02),
+        (925_000, 0.05),
+        (1_500_000, 0.10),
+        (float("inf"), 0.12),
+    ]
+
+    surcharge = 0.05 if additional_property else 0.0
+
+    tax = 0.0
+    lower = 0.0
+
+    for upper, rate in bands:
+        taxable = max(
+            0.0,
+            min(price, upper) - lower
+        )
+
+        tax += taxable * (rate + surcharge)
+
+        if price <= upper:
+            break
+
+        lower = upper
+
+    return tax
+
+
+def calculate_sdlt(
+    price: float,
+    first_time_buyer: bool,
+    additional_property: bool
+) -> float:
+    """
+    Apply first-time buyer relief where eligible.
+    Otherwise use normal residential SDLT.
+    """
+
+    if (
+        first_time_buyer
+        and not additional_property
+        and price <= 500_000
+    ):
+        return max(
+            0.0,
+            price - 300_000
+        ) * 0.05
+
+    return calculate_standard_sdlt(
+        price,
+        additional_property
+    )
+
+
+def payment_for_balance(
+    balance: float,
+    annual_rate_pct: float,
+    remaining_months: int
+) -> float:
+
+    if balance <= 0 or remaining_months <= 0:
+        return 0.0
+
+    monthly_rate = (
+        annual_rate_pct / 100 / 12
+    )
+
+    if monthly_rate == 0:
+        return balance / remaining_months
+
+    return float(
+        npf.pmt(
+            monthly_rate,
+            remaining_months,
+            -balance
+        )
+    )
+
+
+# ============================================================
+# 1. PROPERTY AND MORTGAGE
+# ============================================================
+
+st.header("1. Property and mortgage")
+
+col1, col2 = st.columns(2)
+
+with col1:
+
+    house_price = st.number_input(
+        "Purchase price (£)",
+        min_value=100_000,
+        max_value=3_000_000,
+        value=850_000,
+        step=10_000
+    )
+
+    deposit = st.number_input(
+        "Deposit (£)",
+        min_value=0,
+        max_value=int(house_price),
+        value=min(
+            150_000,
+            int(house_price)
+        ),
+        step=10_000
+    )
+
+    mortgage_rate = st.number_input(
+        "Initial mortgage rate (%)",
+        min_value=0.0,
+        max_value=15.0,
+        value=4.25,
+        step=0.05
+    )
+
+    mortgage_term_years = st.number_input(
+        "Mortgage term (years)",
+        min_value=1,
+        max_value=40,
+        value=30,
+        step=1
+    )
+
+
+with col2:
+
+    fixed_period_years = st.number_input(
+        "Initial fixed / product period (years)",
+        min_value=1,
+        max_value=10,
+        value=5,
+        step=1
+    )
+
+    post_fix_rate = st.number_input(
+        "Assumed mortgage rate after each product period (%)",
+        min_value=0.0,
+        max_value=15.0,
+        value=4.50,
+        step=0.05
+    )
+
+    remortgage_fee = st.number_input(
+        "Cost each time you remortgage (£)",
+        min_value=0,
+        value=1_500,
+        step=100
+    )
+
+    sale_year = st.slider(
+        "How long will you own the property? (years)",
+        1,
+        40,
+        7
+    )
+
+
+loan_amount = max(
+    0.0,
+    house_price - deposit
+)
+
+initial_monthly_payment = payment_for_balance(
+    loan_amount,
+    mortgage_rate,
+    int(mortgage_term_years * 12)
+)
+
+ltv = (
+    loan_amount / house_price
+    if house_price
+    else 0
+)
+
+
+m1, m2, m3 = st.columns(3)
+
+m1.metric(
+    "Mortgage",
+    f"£{loan_amount:,.0f}"
+)
+
+m2.metric(
+    "Initial monthly payment",
+    f"£{initial_monthly_payment:,.0f}"
+)
+
+m3.metric(
+    "Loan-to-value",
+    f"{ltv * 100:.1f}%"
+)
+
+
+# ============================================================
+# 2. RENTING AND ALTERNATIVE INVESTMENT
+# ============================================================
+
+st.header(
+    "2. Renting and alternative investment"
+)
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    rent_monthly = st.number_input(
+        "Comparable monthly rent (£)",
+        min_value=0,
+        value=2_750,
+        step=50
+    )
+
+
+with col2:
+
+    rent_growth = st.number_input(
+        "Annual rent growth (%)",
+        min_value=-5.0,
+        max_value=15.0,
+        value=3.0,
+        step=0.25
+    )
+
+
+with col3:
+
+    alt_investment_return = st.number_input(
+        "Annual return on renter's investments (%)",
+        min_value=-10.0,
+        max_value=20.0,
+        value=5.0,
+        step=0.25
+    )
+
+
+st.caption(
+    "The renter starts by investing all cash that the buyer spends upfront, "
+    "then invests any monthly savings versus owning."
+)
+
+
+# ============================================================
+# 3. PURCHASE, OWNERSHIP AND SALE COSTS
+# ============================================================
+
+st.header(
+    "3. Purchase, ownership and sale costs"
+)
+
+col1, col2 = st.columns(2)
+
+
+with col1:
+
+    first_time_buyer = st.checkbox(
+        "First-time buyer",
+        value=False
+    )
+
+    additional_property = st.checkbox(
+        "This will be an additional residential property",
+        value=False
+    )
+
+    purchase_fees = st.number_input(
+        "Purchase costs excluding SDLT (£)",
+        min_value=0,
+        value=5_000,
+        step=500,
+        help=(
+            "For example solicitor, survey, "
+            "mortgage/product and moving costs."
+        )
+    )
+
+    renovation_costs = st.number_input(
+        "Upfront renovation spend (£)",
+        min_value=0,
+        value=0,
+        step=1_000
+    )
+
+    renovation_value_added = st.number_input(
+        "Estimated value added by renovation (£)",
+        min_value=0,
+        value=0,
+        step=1_000,
+        help=(
+            "Use the amount you think the works add "
+            "to the property's market value, rather "
+            "than a percentage uplift."
+        )
+    )
+
+
+with col2:
+
+    annual_maintenance_rate = st.number_input(
+        "Annual maintenance (% of property value)",
+        min_value=0.0,
+        max_value=5.0,
+        value=0.5,
+        step=0.1
+    )
+
+    annual_service_charge = st.number_input(
+        "Annual service charge (£)",
+        min_value=0,
+        value=0,
+        step=250
+    )
+
+    service_charge_growth = st.number_input(
+        "Annual service-charge growth (%)",
+        min_value=-5.0,
+        max_value=15.0,
+        value=3.0,
+        step=0.25
+    )
+
+    annual_ground_rent = st.number_input(
+        "Annual ground rent / estate charge (£)",
+        min_value=0,
+        value=0,
+        step=50
+    )
+
+    major_works_cost = st.number_input(
+        "One-off major works / structural cost (£)",
+        min_value=0,
+        value=0,
+        step=1_000
+    )
+
+    major_works_year = st.number_input(
+        "Year major works occur",
+        min_value=1,
+        max_value=40,
+        value=min(
+            3,
+            sale_year
+        ),
+        step=1
+    )
+
+
+if (
+    first_time_buyer
+    and additional_property
+):
+    st.warning(
+        "A purchase cannot normally be both a first-time "
+        "purchase and an additional property. The SDLT "
+        "calculation therefore uses the additional-property rates."
+    )
+
+
+stamp_duty = calculate_sdlt(
+    house_price,
+    first_time_buyer,
+    additional_property
+)
+
+st.metric(
+    "Estimated SDLT",
+    f"£{stamp_duty:,.0f}"
+)
+
+st.caption(
+    "This calculator models standard England / Northern Ireland "
+    "residential SDLT and first-time-buyer relief. Check HMRC "
+    "for unusual circumstances."
+)
+
+
+# ============================================================
+# 4. PROPERTY VALUE AND SELLING ASSUMPTIONS
+# ============================================================
+
+st.header(
+    "4. Property value and selling assumptions"
+)
+
+col1, col2, col3 = st.columns(3)
+
+
+with col1:
+
+    appreciation_rate = st.number_input(
+        "Annual property appreciation (%)",
+        min_value=-10.0,
+        max_value=15.0,
+        value=2.5,
+        step=0.25
+    )
+
+
+with col2:
+
+    estate_agent_fee_rate = st.number_input(
+        "Estate-agent selling fee (% of sale price)",
+        min_value=0.0,
+        max_value=5.0,
+        value=1.5,
+        step=0.1
+    )
+
+
+with col3:
+
+    fixed_sale_costs = st.number_input(
+        "Other sale costs (£)",
+        min_value=0,
+        value=3_000,
+        step=500
+    )
+
+
+# ============================================================
+# MODEL
+# ============================================================
+
+def simulate(
+    holding_years: int,
+    property_growth_pct: float = None
+):
+
+    growth_pct = (
+        appreciation_rate
+        if property_growth_pct is None
+        else property_growth_pct
+    )
+
+    holding_months = int(
+        holding_years * 12
+    )
+
+    term_months = int(
+        mortgage_term_years * 12
+    )
+
+    product_months = max(
+        1,
+        int(fixed_period_years * 12)
+    )
+
+
+    # --------------------------------------------------------
+    # INITIAL CASH
+    # --------------------------------------------------------
+
+    initial_cash_required = (
+        deposit
+        + stamp_duty
+        + purchase_fees
+        + renovation_costs
+    )
+
+
+    # The renter invests the exact amount that the buyer
+    # has to spend upfront.
+    renter_portfolio = float(
+        initial_cash_required
+    )
+
+
+    monthly_investment_return = (
+        (1 + alt_investment_return / 100)
+        ** (1 / 12)
+        - 1
+    )
+
+
+    # --------------------------------------------------------
+    # MORTGAGE
+    # --------------------------------------------------------
+
+    principal_remaining = float(
+        loan_amount
+    )
+
+    current_mortgage_rate = float(
+        mortgage_rate
+    )
+
+    remaining_term_months = (
+        term_months
+    )
+
+    current_payment = payment_for_balance(
+        principal_remaining,
+        current_mortgage_rate,
+        remaining_term_months
+    )
+
+
+    # --------------------------------------------------------
+    # RENT / SERVICE CHARGE
+    # --------------------------------------------------------
+
+    current_rent = float(
+        rent_monthly
+    )
+
+    current_service_charge = float(
+        annual_service_charge
+    )
+
+
+    # --------------------------------------------------------
+    # TOTALS
+    # --------------------------------------------------------
+
+    total_rent_paid = 0.0
+    total_interest_paid = 0.0
+    total_principal_paid = 0.0
+
+    total_maintenance_paid = 0.0
+    total_service_charge_paid = 0.0
+    total_ground_rent_paid = 0.0
+
+    total_remortgage_fees = 0.0
+    total_major_works = 0.0
+
+    total_mortgage_payments = 0.0
+
+    monthly_rows = []
+
+
+    # --------------------------------------------------------
+    # MONTHLY SIMULATION
+    # --------------------------------------------------------
+
+    for month in range(
+        holding_months
+    ):
+
+        # Existing renter portfolio compounds.
+        renter_portfolio *= (
+            1
+            + monthly_investment_return
+        )
+
+
+        # ----------------------------------------------------
+        # REMORTGAGE
+        # ----------------------------------------------------
+
+        if (
+            month > 0
+            and month % product_months == 0
+            and principal_remaining > 0
+            and remaining_term_months > 0
+        ):
+
+            current_mortgage_rate = float(
+                post_fix_rate
+            )
+
+            current_payment = payment_for_balance(
+                principal_remaining,
+                current_mortgage_rate,
+                remaining_term_months
+            )
+
+            total_remortgage_fees += (
+                remortgage_fee
+            )
+
+            # Buyer pays the remortgage fee.
+            # Renter therefore gets to invest the
+            # equivalent cash.
+            renter_portfolio += (
+                remortgage_fee
+            )
+
+
+        mortgage_payment_this_month = 0.0
+        interest_this_month = 0.0
+        principal_this_month = 0.0
+
+
+        # ----------------------------------------------------
+        # MORTGAGE PAYMENT
+        # ----------------------------------------------------
+
+        if (
+            principal_remaining > 0
+            and remaining_term_months > 0
+        ):
+
+            monthly_mortgage_rate = (
+                current_mortgage_rate
+                / 100
+                / 12
+            )
+
+            interest_this_month = (
+                principal_remaining
+                * monthly_mortgage_rate
+            )
+
+            scheduled_principal = max(
+                0.0,
+                current_payment
+                - interest_this_month
+            )
+
+            principal_this_month = min(
+                principal_remaining,
+                scheduled_principal
+            )
+
+            mortgage_payment_this_month = (
+                interest_this_month
+                + principal_this_month
+            )
+
+            principal_remaining -= (
+                principal_this_month
+            )
+
+            remaining_term_months -= 1
+
+            if principal_remaining < 0.01:
+                principal_remaining = 0.0
+
+
+        # ----------------------------------------------------
+        # PROPERTY VALUE
+        # ----------------------------------------------------
+
+        property_value_this_month = (
+            house_price
+            + renovation_value_added
+        ) * (
+            1
+            + growth_pct / 100
+        ) ** (
+            (month + 1) / 12
+        )
+
+
+        # ----------------------------------------------------
+        # OWNERSHIP COSTS
+        # ----------------------------------------------------
+
+        maintenance_this_month = (
+            property_value_this_month
+            * annual_maintenance_rate
+            / 100
+            / 12
+        )
+
+        service_charge_this_month = (
+            current_service_charge
+            / 12
+        )
+
+        ground_rent_this_month = (
+            annual_ground_rent
+            / 12
+        )
+
+
+        major_works_this_month = 0.0
+
+        if (
+            major_works_cost > 0
+            and month
+            == int(
+                (major_works_year - 1)
+                * 12
+            )
+        ):
+
+            major_works_this_month = float(
+                major_works_cost
+            )
+
+            total_major_works += (
+                major_works_this_month
+            )
+
+
+        buyer_cash_cost = (
+            mortgage_payment_this_month
+            + maintenance_this_month
+            + service_charge_this_month
+            + ground_rent_this_month
+            + major_works_this_month
+        )
+
+
+        # ----------------------------------------------------
+        # RENT VS BUY CASHFLOW DIFFERENCE
+        # ----------------------------------------------------
+
+        # If owning costs MORE than renting this month,
+        # the renter invests the difference.
+        #
+        # If renting costs MORE than owning,
+        # money is withdrawn from the renter's portfolio.
+
+        renter_portfolio += (
+            buyer_cash_cost
+            - current_rent
+        )
+
+
+        # ----------------------------------------------------
+        # TOTALS
+        # ----------------------------------------------------
+
+        total_rent_paid += (
+            current_rent
+        )
+
+        total_interest_paid += (
+            interest_this_month
+        )
+
+        total_principal_paid += (
+            principal_this_month
+        )
+
+        total_mortgage_payments += (
+            mortgage_payment_this_month
+        )
+
+        total_maintenance_paid += (
+            maintenance_this_month
+        )
+
+        total_service_charge_paid += (
+            service_charge_this_month
+        )
+
+        total_ground_rent_paid += (
+            ground_rent_this_month
+        )
+
+
+        monthly_rows.append(
+            {
+                "Month": month + 1,
+
+                "Property value":
+                    property_value_this_month,
+
+                "Mortgage balance":
+                    principal_remaining,
+
+                "Renter portfolio":
+                    renter_portfolio,
+
+                "Rent":
+                    current_rent,
+
+                "Buyer monthly cash cost":
+                    buyer_cash_cost,
+            }
+        )
+
+
+        # ----------------------------------------------------
+        # ANNUAL INFLATION
+        # ----------------------------------------------------
+
+        if (
+            (month + 1)
+            % 12
+            == 0
+        ):
+
+            current_rent *= (
+                1
+                + rent_growth / 100
+            )
+
+            current_service_charge *= (
+                1
+                + service_charge_growth / 100
+            )
+
+
+    # --------------------------------------------------------
+    # SALE
+    # --------------------------------------------------------
+
+    sale_value = (
+        house_price
+        + renovation_value_added
+    ) * (
+        1
+        + growth_pct / 100
+    ) ** holding_years
+
+
+    estate_agent_fee = (
+        sale_value
+        * estate_agent_fee_rate
+        / 100
+    )
+
+    total_sale_costs = (
+        estate_agent_fee
+        + fixed_sale_costs
+    )
+
+
+    # Buyer receives their equity after clearing the mortgage.
+    buyer_net_worth = (
+        sale_value
+        - total_sale_costs
+        - principal_remaining
+    )
+
+
+    renter_net_worth = (
+        renter_portfolio
+    )
+
+
+    difference = (
+        buyer_net_worth
+        - renter_net_worth
+    )
+
+
+    return {
+
+        "buyer_net_worth":
+            buyer_net_worth,
+
+        "renter_net_worth":
+            renter_net_worth,
+
+        "difference":
+            difference,
+
+        "sale_value":
+            sale_value,
+
+        "mortgage_balance":
+            principal_remaining,
+
+        "sale_costs":
+            total_sale_costs,
+
+        "initial_cash_required":
+            initial_cash_required,
+
+        "total_rent_paid":
+            total_rent_paid,
+
+        "total_interest_paid":
+            total_interest_paid,
+
+        "total_principal_paid":
+            total_principal_paid,
+
+        "total_mortgage_payments":
+            total_mortgage_payments,
+
+        "total_maintenance_paid":
+            total_maintenance_paid,
+
+        "total_service_charge_paid":
+            total_service_charge_paid,
+
+        "total_ground_rent_paid":
+            total_ground_rent_paid,
+
+        "total_remortgage_fees":
+            total_remortgage_fees,
+
+        "total_major_works":
+            total_major_works,
+
+        "monthly":
+            pd.DataFrame(
+                monthly_rows
+            ),
     }
-   ],
-   "source": [
-    "import streamlit as st\n",
-    "import numpy as np\n",
-    "import numpy_financial as npf\n",
-    "import pandas as pd\n",
-    "\n",
-    "# --- PAGE SETUP ---\n",
-    "st.set_page_config(page_title=\"London Property Buy vs Rent Calculator\", layout=\"wide\")\n",
-    "st.title(\"🏠 Should You Buy a House in London?\")\n",
-    "st.markdown(\"This tool helps you compare the cost of buying vs renting over a fixed time period, with explanations for each section.\")\n",
-    "\n",
-    "# --- USER INPUTS ---\n",
-    "st.header(\"1. Property & Loan Details\")\n",
-    "house_price = st.slider(\"Total House Price (£)\", 100_000, 2_000_000, 600_000, step=10_000)\n",
-    "deposit = st.slider(\"Deposit (£)\", 0, house_price, 100_000, step=10_000)\n",
-    "interest_rate = st.slider(\"Mortgage Interest Rate (%)\", 0.5, 10.0, 4.25, step=0.05)\n",
-    "term_years = st.slider(\"Loan Term (years)\", 5, 40, 25)\n",
-    "\n",
-    "loan_amount = house_price - deposit\n",
-    "monthly_rate = interest_rate / 100 / 12\n",
-    "n_payments = term_years * 12\n",
-    "monthly_payment = npf.pmt(monthly_rate, n_payments, -loan_amount)\n",
-    "\n",
-    "st.metric(\"Monthly Mortgage Payment\", f\"£{monthly_payment:,.0f}\")\n",
-    "\n",
-    "# --- RENTAL COMPARISON ---\n",
-    "st.header(\"2. Rental Market Comparison\")\n",
-    "rent_monthly = st.slider(\"Monthly Rent (£)\", 500, 5000, 2250, step=50)\n",
-    "gross_yield = st.slider(\"Gross Rental Yield (%)\", 1.0, 10.0, 4.5)\n",
-    "net_yield = st.slider(\"Net Rental Yield (%)\", 0.5, 6.0, 2.5)\n",
-    "\n",
-    "# --- FEES ---\n",
-    "st.header(\"3. Buying Costs & Fees\")\n",
-    "remortgage_times = st.slider(\"Number of Remortgages (every 5 years typical)\", 0, 10, 5)\n",
-    "transaction_fees = st.number_input(\"Transaction Fees (£)\", value=15_000, step=1000)\n",
-    "stamp_duty = st.number_input(\"Stamp Duty (£)\", value=17_500, step=1000)\n",
-    "renovation_costs = st.number_input(\"Renovation Costs (£, optional)\", value=0, step=1000)\n",
-    "\n",
-    "fees_total = transaction_fees + stamp_duty + renovation_costs\n",
-    "\n",
-    "# --- UNRECOVERABLE COSTS ---\n",
-    "st.header(\"4. Unrecoverable Cost Comparison\")\n",
-    "interest_paid = (monthly_payment * n_payments) - loan_amount\n",
-    "mortgage_unrecoverable = interest_paid + fees_total\n",
-    "rent_unrecoverable = rent_monthly * 12 * term_years * (1 - (net_yield / gross_yield))\n",
-    "\n",
-    "st.metric(\"Unrecoverable Cost of Mortgage (£)\", f\"£{mortgage_unrecoverable:,.0f}\")\n",
-    "st.metric(\"Unrecoverable Cost of Renting (£)\", f\"£{rent_unrecoverable:,.0f}\")\n",
-    "\n",
-    "# --- CAPITAL APPRECIATION ---\n",
-    "st.header(\"5. Property Appreciation & ROI\")\n",
-    "sale_year = st.slider(\"House Sale Year\", 1, 50, 5)\n",
-    "appreciation_rate = st.slider(\"Annual Property Appreciation (%)\", -5.0, 10.0, 2.6)\n",
-    "sale_value = house_price * ((1 + (appreciation_rate / 100)) ** sale_year)\n",
-    "sale_fees = sale_value * 0.03  # Assume 3% sale fee\n",
-    "\n",
-    "net_proceeds = sale_value - sale_fees - loan_amount\n",
-    "irr_before_tax = npf.irr([-deposit - fees_total] + [0]*(sale_year-1) + [net_proceeds])\n",
-    "\n",
-    "st.metric(\"Expected Sale Value (£)\", f\"£{sale_value:,.0f}\")\n",
-    "st.metric(\"IRR Before Tax\", f\"{irr_before_tax*100:.2f}%\")\n",
-    "\n",
-    "# --- SUMMARY ---\n",
-    "st.header(\"6. Summary\")\n",
-    "st.write(f\"- Buying incurs £{mortgage_unrecoverable:,.0f} in unrecoverable costs.\")\n",
-    "st.write(f\"- Renting incurs £{rent_unrecoverable:,.0f} in comparable unrecoverable costs.\")\n",
-    "st.write(f\"- Net proceeds after {sale_year} years: £{net_proceeds:,.0f}.\")\n",
-    "st.write(f\"- Estimated IRR (before tax): {irr_before_tax*100:.2f}%.\")\n",
-    "\n",
-    "# --- DATA VISUALISATION (Optional) ---\n",
-    "st.header(\"7. Historical Appreciation Data\")\n",
-    "historical = pd.DataFrame({\n",
-    "    \"Start Year\": [2000, 2005, 2010, 2015, 2020],\n",
-    "    \"End Year\":   [2005, 2010, 2015, 2020, 2025],\n",
-    "    \"Start Price\": [163577, 282548, 290200, 531000, 486000],\n",
-    "    \"End Price\":   [282548, 290200, 531000, 486000, 552000],\n",
-    "    \"London Return %\": [11.6, 0.5, 12.8, -1.8, 2.6]\n",
-    "})\n",
-    "\n",
-    "st.dataframe(historical)\n",
-    "\n",
-    "st.line_chart(historical.set_index(\"End Year\")[\"London Return %\"])\n",
-    "\n",
-    "# --- FOOTER ---\n",
-    "st.caption(\"This model is for educational and illustrative purposes only. Always seek financial advice for personal decisions.\")"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.12.7"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+
+
+# ============================================================
+# RUN MODEL
+# ============================================================
+
+result = simulate(
+    sale_year
+)
+
+
+# ============================================================
+# 5. RESULT
+# ============================================================
+
+st.header("5. Result")
+
+
+if result["difference"] > 0:
+
+    verdict = (
+        f"Buying leaves you "
+        f"£{result['difference']:,.0f} "
+        f"better off after "
+        f"{sale_year} years"
+    )
+
+    st.success(verdict)
+
+
+elif result["difference"] < 0:
+
+    verdict = (
+        f"Renting leaves you "
+        f"£{abs(result['difference']):,.0f} "
+        f"better off after "
+        f"{sale_year} years"
+    )
+
+    st.info(verdict)
+
+
+else:
+
+    st.info(
+        f"Buying and renting are approximately "
+        f"equal after {sale_year} years"
+    )
+
+
+c1, c2, c3 = st.columns(3)
+
+
+c1.metric(
+    "Buyer ending net worth",
+    f"£{result['buyer_net_worth']:,.0f}"
+)
+
+
+c2.metric(
+    "Renter ending portfolio",
+    f"£{result['renter_net_worth']:,.0f}"
+)
+
+
+c3.metric(
+    "Buy minus rent",
+    f"£{result['difference']:,.0f}",
+    help=(
+        "Positive means buying produces "
+        "higher ending net worth; negative "
+        "means renting does."
+    )
+)
+
+
+st.caption(
+    "Buyer ending net worth is sale proceeds after "
+    "selling costs and repaying the outstanding mortgage. "
+    "Renter ending net worth is the investment portfolio "
+    "built from the buyer's upfront cash requirement and "
+    "monthly cost differences."
+)
+
+
+# ============================================================
+# BREAKDOWN
+# ============================================================
+
+st.subheader(
+    "What happened over the period"
+)
+
+
+summary = pd.DataFrame(
+    {
+        "Item": [
+
+            "Cash required upfront to buy",
+
+            "Estimated sale value",
+
+            "Mortgage remaining at sale",
+
+            "Total mortgage payments",
+
+            "of which interest",
+
+            "of which principal",
+
+            "Maintenance paid",
+
+            "Service charges paid",
+
+            "Ground rent / estate charges paid",
+
+            "Remortgage fees paid",
+
+            "Major works paid",
+
+            "Selling costs",
+
+            "Total rent paid",
+        ],
+
+        "Amount": [
+
+            result[
+                "initial_cash_required"
+            ],
+
+            result[
+                "sale_value"
+            ],
+
+            result[
+                "mortgage_balance"
+            ],
+
+            result[
+                "total_mortgage_payments"
+            ],
+
+            result[
+                "total_interest_paid"
+            ],
+
+            result[
+                "total_principal_paid"
+            ],
+
+            result[
+                "total_maintenance_paid"
+            ],
+
+            result[
+                "total_service_charge_paid"
+            ],
+
+            result[
+                "total_ground_rent_paid"
+            ],
+
+            result[
+                "total_remortgage_fees"
+            ],
+
+            result[
+                "total_major_works"
+            ],
+
+            result[
+                "sale_costs"
+            ],
+
+            result[
+                "total_rent_paid"
+            ],
+        ],
+    }
+)
+
+
+summary["Amount"] = (
+    summary["Amount"]
+    .map(
+        lambda x:
+        f"£{x:,.0f}"
+    )
+)
+
+
+st.dataframe(
+    summary,
+    use_container_width=True,
+    hide_index=True
+)
+
+
+# ============================================================
+# 6. BREAK-EVEN HOLDING PERIOD
+# ============================================================
+
+st.header(
+    "6. Break-even holding period"
+)
+
+
+break_even_rows = []
+
+
+for years in range(
+    1,
+    31
+):
+
+    year_result = simulate(
+        years
+    )
+
+    break_even_rows.append(
+        {
+            "Years":
+                years,
+
+            "Buy minus rent (£)":
+                year_result[
+                    "difference"
+                ],
+        }
+    )
+
+
+break_even_df = pd.DataFrame(
+    break_even_rows
+)
+
+
+st.line_chart(
+    break_even_df.set_index(
+        "Years"
+    )
+)
+
+
+positive_years = (
+    break_even_df.loc[
+        break_even_df[
+            "Buy minus rent (£)"
+        ] >= 0,
+        "Years"
+    ]
+)
+
+
+if len(
+    positive_years
+) > 0:
+
+    first_break_even = int(
+        positive_years.iloc[0]
+    )
+
+    st.write(
+        f"On these assumptions, buying first "
+        f"overtakes renting at about "
+        f"**year {first_break_even}**."
+    )
+
+
+else:
+
+    st.write(
+        "On these assumptions, buying does "
+        "not overtake renting within 30 years."
+    )
+
+
+# ============================================================
+# 7. PROPERTY GROWTH SENSITIVITY
+# ============================================================
+
+st.header(
+    "7. Sensitivity to property-price growth"
+)
+
+
+sensitivity_rates = np.arange(
+    -2.0,
+    6.01,
+    0.5
+)
+
+
+sensitivity_rows = []
+
+
+for growth in sensitivity_rates:
+
+    sensitivity_result = simulate(
+        sale_year,
+        property_growth_pct=float(
+            growth
+        )
+    )
+
+    sensitivity_rows.append(
+        {
+            "Annual property growth (%)":
+                growth,
+
+            "Buy minus rent (£)":
+                sensitivity_result[
+                    "difference"
+                ],
+        }
+    )
+
+
+sensitivity_df = pd.DataFrame(
+    sensitivity_rows
+)
+
+
+st.line_chart(
+    sensitivity_df.set_index(
+        "Annual property growth (%)"
+    )
+)
+
+
+closest = sensitivity_df.iloc[
+    (
+        sensitivity_df[
+            "Buy minus rent (£)"
+        ]
+        .abs()
+    )
+    .argsort()[:1]
+]
+
+
+closest_growth = float(
+    closest[
+        "Annual property growth (%)"
+    ]
+    .iloc[0]
+)
+
+
+st.write(
+    f"Within the sensitivity range shown, "
+    f"the closest point to break-even is "
+    f"around **{closest_growth:.1f}% annual "
+    f"property growth**."
+)
+
+
+# ============================================================
+# 8. NET WORTH PATH
+# ============================================================
+
+st.header(
+    "8. Net-worth path"
+)
+
+
+chart_df = (
+    result[
+        "monthly"
+    ]
+    .copy()
+)
+
+
+chart_df[
+    "Year"
+] = (
+    chart_df[
+        "Month"
+    ]
+    / 12
+)
+
+
+chart_df = (
+    chart_df
+    .set_index(
+        "Year"
+    )
+    [
+        [
+            "Property value",
+            "Mortgage balance",
+            "Renter portfolio",
+        ]
+    ]
+)
+
+
+st.line_chart(
+    chart_df
+)
+
+
+# ============================================================
+# EXPLANATION
+# ============================================================
+
+with st.expander(
+    "How this model works"
+):
+
+    st.markdown(
+        """
+- Both options start with the same financial resources.
+- The buyer uses cash for the deposit, SDLT, purchase fees and renovations.
+- The renter invests that same upfront amount instead.
+- Each month, the renter's portfolio earns the selected investment return.
+- If owning costs more than renting in a month, the renter invests the difference.
+- If renting costs more, the difference is withdrawn from the renter's portfolio.
+- Mortgage principal is not treated as an unrecoverable cost. It increases the buyer's equity by reducing the mortgage balance.
+- At the end of the holding period, the buyer sells the property, pays selling costs and clears the remaining mortgage.
+- The final comparison is buyer net sale equity versus renter investment portfolio.
+"""
+    )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.caption(
+    "Educational model only. It simplifies taxes, investment "
+    "returns, mortgage products, insurance, opportunity costs "
+    "and individual circumstances. Check current HMRC rules "
+    "and actual mortgage / transaction costs before making a "
+    "financial decision."
+)
