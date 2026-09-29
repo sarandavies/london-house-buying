@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import numpy_financial as npf
 import pandas as pd
+import random
 
 
 # ============================================================
@@ -34,10 +35,6 @@ def calculate_standard_sdlt(
     price: float,
     additional_property: bool = False
 ) -> float:
-    """
-    England / Northern Ireland residential SDLT rates
-    applying from 1 April 2025.
-    """
 
     bands = [
         (125_000, 0.00),
@@ -53,6 +50,7 @@ def calculate_standard_sdlt(
     lower = 0.0
 
     for upper, rate in bands:
+
         taxable = max(
             0.0,
             min(price, upper) - lower
@@ -73,16 +71,13 @@ def calculate_sdlt(
     first_time_buyer: bool,
     additional_property: bool
 ) -> float:
-    """
-    Apply first-time buyer relief where eligible.
-    Otherwise use normal residential SDLT.
-    """
 
     if (
         first_time_buyer
         and not additional_property
         and price <= 500_000
     ):
+
         return max(
             0.0,
             price - 300_000
@@ -103,9 +98,7 @@ def payment_for_balance(
     if balance <= 0 or remaining_months <= 0:
         return 0.0
 
-    monthly_rate = (
-        annual_rate_pct / 100 / 12
-    )
+    monthly_rate = annual_rate_pct / 100 / 12
 
     if monthly_rate == 0:
         return balance / remaining_months
@@ -120,12 +113,222 @@ def payment_for_balance(
 
 
 # ============================================================
+# MARKET SCENARIOS
+# ============================================================
+
+MARKET_SCENARIOS = {
+
+    "Steady market": {
+
+        "description": (
+            "A relatively normal environment with modest property growth, "
+            "moderate rent increases and broadly stable mortgage rates."
+        ),
+
+        "property_growth_path": [
+            2.5
+        ],
+
+        "post_fix_rate": 4.5,
+        "rent_growth": 3.0,
+        "service_charge_growth": 3.0,
+    },
+
+
+    "Housing boom": {
+
+        "description": (
+            "Strong housing demand pushes prices higher, mortgage rates ease "
+            "and rents continue to grow."
+        ),
+
+        "property_growth_path": [
+            6.0,
+            5.0,
+            4.0,
+            3.5,
+            3.0,
+        ],
+
+        "post_fix_rate": 3.5,
+        "rent_growth": 4.0,
+        "service_charge_growth": 3.5,
+    },
+
+
+    "Financial / housing crash": {
+
+        "description": (
+            "A severe first-year property correction followed by a weak period "
+            "and gradual recovery. Refinancing also becomes more expensive."
+        ),
+
+        "property_growth_path": [
+            -15.0,
+            -3.0,
+            0.0,
+            2.0,
+            2.5,
+        ],
+
+        "post_fix_rate": 6.5,
+        "rent_growth": 1.5,
+        "service_charge_growth": 4.0,
+    },
+
+
+    "Stagflation / high rates": {
+
+        "description": (
+            "House prices barely grow while mortgage rates, rents and service "
+            "charges remain relatively high."
+        ),
+
+        "property_growth_path": [
+            0.0,
+            0.5,
+            1.0,
+            1.5,
+            2.0,
+        ],
+
+        "post_fix_rate": 6.0,
+        "rent_growth": 5.0,
+        "service_charge_growth": 5.0,
+    },
+
+
+    "Rate-cut recovery": {
+
+        "description": (
+            "A sluggish first couple of years followed by stronger property "
+            "growth as borrowing costs fall."
+        ),
+
+        "property_growth_path": [
+            0.0,
+            1.0,
+            3.5,
+            4.0,
+            3.0,
+        ],
+
+        "post_fix_rate": 3.25,
+        "rent_growth": 3.5,
+        "service_charge_growth": 3.0,
+    },
+}
+
+
+# ============================================================
+# RANDOM SCENARIO SECTION
+# ============================================================
+
+st.header("🎲 Market scenario")
+
+st.markdown(
+    """
+Run the model using your own assumptions, select a market environment,
+or roll the dice and stress-test the purchase against a random scenario.
+"""
+)
+
+scenario_mode = st.radio(
+    "How do you want to model the market?",
+    [
+        "Use my assumptions",
+        "Choose a scenario",
+        "Roll the dice",
+    ],
+    horizontal=True
+)
+
+
+if "random_market_scenario" not in st.session_state:
+    st.session_state.random_market_scenario = "Steady market"
+
+
+selected_scenario = None
+
+
+if scenario_mode == "Choose a scenario":
+
+    selected_scenario = st.selectbox(
+        "Market scenario",
+        list(MARKET_SCENARIOS.keys())
+    )
+
+
+elif scenario_mode == "Roll the dice":
+
+    if st.button(
+        "🎲 Roll the dice",
+        type="primary"
+    ):
+
+        st.session_state.random_market_scenario = random.choice(
+            list(MARKET_SCENARIOS.keys())
+        )
+
+    selected_scenario = (
+        st.session_state.random_market_scenario
+    )
+
+
+if selected_scenario is not None:
+
+    scenario = MARKET_SCENARIOS[
+        selected_scenario
+    ]
+
+    st.subheader(
+        f"Scenario: {selected_scenario}"
+    )
+
+    st.info(
+        scenario["description"]
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric(
+        "Rate after fixed period",
+        f"{scenario['post_fix_rate']:.2f}%"
+    )
+
+    c2.metric(
+        "Rent growth",
+        f"{scenario['rent_growth']:.1f}%"
+    )
+
+    c3.metric(
+        "Service-charge growth",
+        f"{scenario['service_charge_growth']:.1f}%"
+    )
+
+
+    property_path_text = " → ".join(
+        f"{x:+.1f}%"
+        for x in scenario[
+            "property_growth_path"
+        ]
+    )
+
+    st.caption(
+        "Property-growth path for the first five years: "
+        f"{property_path_text}. "
+        "The final listed rate is then used for later years."
+    )
+
+
+# ============================================================
 # 1. PROPERTY AND MORTGAGE
 # ============================================================
 
 st.header("1. Property and mortgage")
 
 col1, col2 = st.columns(2)
+
 
 with col1:
 
@@ -175,12 +378,13 @@ with col2:
         step=1
     )
 
-    post_fix_rate = st.number_input(
-        "Assumed mortgage rate after each product period (%)",
+    manual_post_fix_rate = st.number_input(
+        "Assumed mortgage rate after fixed period (%)",
         min_value=0.0,
         max_value=15.0,
         value=4.50,
-        step=0.05
+        step=0.05,
+        disabled=selected_scenario is not None
     )
 
     remortgage_fee = st.number_input(
@@ -196,6 +400,15 @@ with col2:
         40,
         7
     )
+
+
+post_fix_rate = (
+    MARKET_SCENARIOS[
+        selected_scenario
+    ]["post_fix_rate"]
+    if selected_scenario is not None
+    else manual_post_fix_rate
+)
 
 
 loan_amount = max(
@@ -244,6 +457,7 @@ st.header(
 
 col1, col2, col3 = st.columns(3)
 
+
 with col1:
 
     rent_monthly = st.number_input(
@@ -256,12 +470,13 @@ with col1:
 
 with col2:
 
-    rent_growth = st.number_input(
+    manual_rent_growth = st.number_input(
         "Annual rent growth (%)",
         min_value=-5.0,
         max_value=15.0,
         value=3.0,
-        step=0.25
+        step=0.25,
+        disabled=selected_scenario is not None
     )
 
 
@@ -274,6 +489,15 @@ with col3:
         value=5.0,
         step=0.25
     )
+
+
+rent_growth = (
+    MARKET_SCENARIOS[
+        selected_scenario
+    ]["rent_growth"]
+    if selected_scenario is not None
+    else manual_rent_growth
+)
 
 
 st.caption(
@@ -329,9 +553,8 @@ with col1:
         value=0,
         step=1_000,
         help=(
-            "Use the amount you think the works add "
-            "to the property's market value, rather "
-            "than a percentage uplift."
+            "The amount you think the works add "
+            "to the market value of the property."
         )
     )
 
@@ -353,12 +576,13 @@ with col2:
         step=250
     )
 
-    service_charge_growth = st.number_input(
+    manual_service_charge_growth = st.number_input(
         "Annual service-charge growth (%)",
         min_value=-5.0,
         max_value=15.0,
         value=3.0,
-        step=0.25
+        step=0.25,
+        disabled=selected_scenario is not None
     )
 
     annual_ground_rent = st.number_input(
@@ -387,14 +611,24 @@ with col2:
     )
 
 
+service_charge_growth = (
+    MARKET_SCENARIOS[
+        selected_scenario
+    ]["service_charge_growth"]
+    if selected_scenario is not None
+    else manual_service_charge_growth
+)
+
+
 if (
     first_time_buyer
     and additional_property
 ):
+
     st.warning(
         "A purchase cannot normally be both a first-time "
-        "purchase and an additional property. The SDLT "
-        "calculation therefore uses the additional-property rates."
+        "purchase and an additional property. The calculator "
+        "therefore applies the additional-property SDLT rates."
     )
 
 
@@ -404,15 +638,10 @@ stamp_duty = calculate_sdlt(
     additional_property
 )
 
+
 st.metric(
     "Estimated SDLT",
     f"£{stamp_duty:,.0f}"
-)
-
-st.caption(
-    "This calculator models standard England / Northern Ireland "
-    "residential SDLT and first-time-buyer relief. Check HMRC "
-    "for unusual circumstances."
 )
 
 
@@ -429,12 +658,13 @@ col1, col2, col3 = st.columns(3)
 
 with col1:
 
-    appreciation_rate = st.number_input(
+    manual_appreciation_rate = st.number_input(
         "Annual property appreciation (%)",
         min_value=-10.0,
         max_value=15.0,
         value=2.5,
-        step=0.25
+        step=0.25,
+        disabled=selected_scenario is not None
     )
 
 
@@ -460,19 +690,40 @@ with col3:
 
 
 # ============================================================
+# PROPERTY GROWTH FUNCTION
+# ============================================================
+
+def get_property_growth_for_year(
+    year_number: int,
+    override_growth: float = None
+) -> float:
+
+    if override_growth is not None:
+        return override_growth
+
+    if selected_scenario is None:
+        return manual_appreciation_rate
+
+    path = MARKET_SCENARIOS[
+        selected_scenario
+    ]["property_growth_path"]
+
+    index = min(
+        year_number - 1,
+        len(path) - 1
+    )
+
+    return path[index]
+
+
+# ============================================================
 # MODEL
 # ============================================================
 
 def simulate(
     holding_years: int,
-    property_growth_pct: float = None
+    property_growth_override: float = None
 ):
-
-    growth_pct = (
-        appreciation_rate
-        if property_growth_pct is None
-        else property_growth_pct
-    )
 
     holding_months = int(
         holding_years * 12
@@ -500,8 +751,6 @@ def simulate(
     )
 
 
-    # The renter invests the exact amount that the buyer
-    # has to spend upfront.
     renter_portfolio = float(
         initial_cash_required
     )
@@ -526,9 +775,7 @@ def simulate(
         mortgage_rate
     )
 
-    remaining_term_months = (
-        term_months
-    )
+    remaining_term_months = term_months
 
     current_payment = payment_for_balance(
         principal_remaining,
@@ -538,7 +785,7 @@ def simulate(
 
 
     # --------------------------------------------------------
-    # RENT / SERVICE CHARGE
+    # RENT AND OTHER COSTS
     # --------------------------------------------------------
 
     current_rent = float(
@@ -547,6 +794,13 @@ def simulate(
 
     current_service_charge = float(
         annual_service_charge
+    )
+
+
+    # Start property value including any renovation uplift.
+    current_property_value = float(
+        house_price
+        + renovation_value_added
     )
 
 
@@ -578,7 +832,7 @@ def simulate(
         holding_months
     ):
 
-        # Existing renter portfolio compounds.
+        # Renter's existing portfolio compounds.
         renter_portfolio *= (
             1
             + monthly_investment_return
@@ -586,8 +840,37 @@ def simulate(
 
 
         # ----------------------------------------------------
+        # CURRENT YEAR AND PROPERTY GROWTH
+        # ----------------------------------------------------
+
+        current_year = (
+            month // 12
+        ) + 1
+
+        annual_property_growth = (
+            get_property_growth_for_year(
+                current_year,
+                property_growth_override
+            )
+        )
+
+        monthly_property_growth = (
+            (1 + annual_property_growth / 100)
+            ** (1 / 12)
+            - 1
+        )
+
+        current_property_value *= (
+            1
+            + monthly_property_growth
+        )
+
+
+        # ----------------------------------------------------
         # REMORTGAGE
         # ----------------------------------------------------
+
+        remortgage_cost_this_month = 0.0
 
         if (
             month > 0
@@ -606,26 +889,23 @@ def simulate(
                 remaining_term_months
             )
 
+            remortgage_cost_this_month = float(
+                remortgage_fee
+            )
+
             total_remortgage_fees += (
-                remortgage_fee
+                remortgage_cost_this_month
             )
-
-            # Buyer pays the remortgage fee.
-            # Renter therefore gets to invest the
-            # equivalent cash.
-            renter_portfolio += (
-                remortgage_fee
-            )
-
-
-        mortgage_payment_this_month = 0.0
-        interest_this_month = 0.0
-        principal_this_month = 0.0
 
 
         # ----------------------------------------------------
         # MORTGAGE PAYMENT
         # ----------------------------------------------------
+
+        mortgage_payment_this_month = 0.0
+        interest_this_month = 0.0
+        principal_this_month = 0.0
+
 
         if (
             principal_remaining > 0
@@ -670,26 +950,11 @@ def simulate(
 
 
         # ----------------------------------------------------
-        # PROPERTY VALUE
-        # ----------------------------------------------------
-
-        property_value_this_month = (
-            house_price
-            + renovation_value_added
-        ) * (
-            1
-            + growth_pct / 100
-        ) ** (
-            (month + 1) / 12
-        )
-
-
-        # ----------------------------------------------------
         # OWNERSHIP COSTS
         # ----------------------------------------------------
 
         maintenance_this_month = (
-            property_value_this_month
+            current_property_value
             * annual_maintenance_rate
             / 100
             / 12
@@ -731,6 +996,7 @@ def simulate(
             + maintenance_this_month
             + service_charge_this_month
             + ground_rent_this_month
+            + remortgage_cost_this_month
             + major_works_this_month
         )
 
@@ -738,12 +1004,6 @@ def simulate(
         # ----------------------------------------------------
         # RENT VS BUY CASHFLOW DIFFERENCE
         # ----------------------------------------------------
-
-        # If owning costs MORE than renting this month,
-        # the renter invests the difference.
-        #
-        # If renting costs MORE than owning,
-        # money is withdrawn from the renter's portfolio.
 
         renter_portfolio += (
             buyer_cash_cost
@@ -784,15 +1044,26 @@ def simulate(
         )
 
 
+        # Current buyer equity before eventual selling costs.
+        buyer_equity = (
+            current_property_value
+            - principal_remaining
+        )
+
+
         monthly_rows.append(
             {
-                "Month": month + 1,
+                "Month":
+                    month + 1,
 
                 "Property value":
-                    property_value_this_month,
+                    current_property_value,
 
                 "Mortgage balance":
                     principal_remaining,
+
+                "Buyer equity":
+                    buyer_equity,
 
                 "Renter portfolio":
                     renter_portfolio,
@@ -802,18 +1073,22 @@ def simulate(
 
                 "Buyer monthly cash cost":
                     buyer_cash_cost,
+
+                "Annual property growth":
+                    annual_property_growth,
+
+                "Mortgage rate":
+                    current_mortgage_rate,
             }
         )
 
 
         # ----------------------------------------------------
-        # ANNUAL INFLATION
+        # ANNUAL RENT / SERVICE CHARGE INFLATION
         # ----------------------------------------------------
 
         if (
-            (month + 1)
-            % 12
-            == 0
+            (month + 1) % 12 == 0
         ):
 
             current_rent *= (
@@ -832,13 +1107,8 @@ def simulate(
     # --------------------------------------------------------
 
     sale_value = (
-        house_price
-        + renovation_value_added
-    ) * (
-        1
-        + growth_pct / 100
-    ) ** holding_years
-
+        current_property_value
+    )
 
     estate_agent_fee = (
         sale_value
@@ -852,7 +1122,6 @@ def simulate(
     )
 
 
-    # Buyer receives their equity after clearing the mortgage.
     buyer_net_worth = (
         sale_value
         - total_sale_costs
@@ -946,33 +1215,29 @@ st.header("5. Result")
 
 if result["difference"] > 0:
 
-    verdict = (
+    st.success(
         f"Buying leaves you "
         f"£{result['difference']:,.0f} "
         f"better off after "
-        f"{sale_year} years"
+        f"{sale_year} years."
     )
-
-    st.success(verdict)
 
 
 elif result["difference"] < 0:
 
-    verdict = (
+    st.info(
         f"Renting leaves you "
         f"£{abs(result['difference']):,.0f} "
         f"better off after "
-        f"{sale_year} years"
+        f"{sale_year} years."
     )
-
-    st.info(verdict)
 
 
 else:
 
     st.info(
         f"Buying and renting are approximately "
-        f"equal after {sale_year} years"
+        f"equal after {sale_year} years."
     )
 
 
@@ -993,26 +1258,20 @@ c2.metric(
 
 c3.metric(
     "Buy minus rent",
-    f"£{result['difference']:,.0f}",
-    help=(
-        "Positive means buying produces "
-        "higher ending net worth; negative "
-        "means renting does."
-    )
+    f"£{result['difference']:,.0f}"
 )
 
 
 st.caption(
-    "Buyer ending net worth is sale proceeds after "
-    "selling costs and repaying the outstanding mortgage. "
-    "Renter ending net worth is the investment portfolio "
-    "built from the buyer's upfront cash requirement and "
-    "monthly cost differences."
+    "Buyer ending net worth is the equity released after selling the property, "
+    "paying sale costs and clearing the outstanding mortgage. The renter's "
+    "ending wealth is the investment portfolio built from the upfront cash "
+    "they did not spend on buying and subsequent monthly savings."
 )
 
 
 # ============================================================
-# BREAKDOWN
+# WHAT HAPPENED
 # ============================================================
 
 st.subheader(
@@ -1022,6 +1281,7 @@ st.subheader(
 
 summary = pd.DataFrame(
     {
+
         "Item": [
 
             "Cash required upfront to buy",
@@ -1040,16 +1300,17 @@ summary = pd.DataFrame(
 
             "Service charges paid",
 
-            "Ground rent / estate charges paid",
+            "Ground rent / estate charges",
 
-            "Remortgage fees paid",
+            "Remortgage fees",
 
-            "Major works paid",
+            "Major works",
 
             "Selling costs",
 
             "Total rent paid",
         ],
+
 
         "Amount": [
 
@@ -1148,6 +1409,7 @@ for years in range(
 
     break_even_rows.append(
         {
+
             "Years":
                 years,
 
@@ -1191,7 +1453,7 @@ if len(
 
     st.write(
         f"On these assumptions, buying first "
-        f"overtakes renting at about "
+        f"overtakes renting at approximately "
         f"**year {first_break_even}**."
     )
 
@@ -1212,6 +1474,11 @@ st.header(
     "7. Sensitivity to property-price growth"
 )
 
+st.caption(
+    "This deliberately overrides the selected market scenario and asks: "
+    "what happens if property prices instead grow at a constant rate?"
+)
+
 
 sensitivity_rates = np.arange(
     -2.0,
@@ -1227,13 +1494,14 @@ for growth in sensitivity_rates:
 
     sensitivity_result = simulate(
         sale_year,
-        property_growth_pct=float(
+        property_growth_override=float(
             growth
         )
     )
 
     sensitivity_rows.append(
         {
+
             "Annual property growth (%)":
                 growth,
 
@@ -1257,30 +1525,26 @@ st.line_chart(
 )
 
 
-closest = sensitivity_df.iloc[
-    (
-        sensitivity_df[
-            "Buy minus rent (£)"
-        ]
-        .abs()
-    )
-    .argsort()[:1]
-]
+closest_index = (
+    sensitivity_df[
+        "Buy minus rent (£)"
+    ]
+    .abs()
+    .idxmin()
+)
 
 
 closest_growth = float(
-    closest[
+    sensitivity_df.loc[
+        closest_index,
         "Annual property growth (%)"
     ]
-    .iloc[0]
 )
 
 
 st.write(
-    f"Within the sensitivity range shown, "
-    f"the closest point to break-even is "
-    f"around **{closest_growth:.1f}% annual "
-    f"property growth**."
+    f"The closest point to break-even within the range shown is around "
+    f"**{closest_growth:.1f}% annual property-price growth**."
 )
 
 
@@ -1289,7 +1553,7 @@ st.write(
 # ============================================================
 
 st.header(
-    "8. Net-worth path"
+    "8. Wealth path"
 )
 
 
@@ -1301,17 +1565,41 @@ chart_df = (
 )
 
 
-chart_df[
-    "Year"
-] = (
-    chart_df[
-        "Month"
-    ]
+chart_df["Year"] = (
+    chart_df["Month"]
     / 12
 )
 
 
-chart_df = (
+wealth_chart = (
+    chart_df
+    .set_index(
+        "Year"
+    )
+    [
+        [
+            "Buyer equity",
+            "Renter portfolio",
+        ]
+    ]
+)
+
+
+st.line_chart(
+    wealth_chart
+)
+
+
+# ============================================================
+# 9. PROPERTY AND MORTGAGE PATH
+# ============================================================
+
+st.header(
+    "9. Property and mortgage path"
+)
+
+
+property_chart = (
     chart_df
     .set_index(
         "Year"
@@ -1320,15 +1608,70 @@ chart_df = (
         [
             "Property value",
             "Mortgage balance",
-            "Renter portfolio",
         ]
     ]
 )
 
 
 st.line_chart(
-    chart_df
+    property_chart
 )
+
+
+# ============================================================
+# SCENARIO DETAILS
+# ============================================================
+
+if selected_scenario is not None:
+
+    st.header(
+        "10. Scenario path"
+    )
+
+
+    annual_data = (
+        chart_df
+        .copy()
+    )
+
+    annual_data["Year number"] = (
+        np.ceil(
+            annual_data["Year"]
+        )
+        .astype(int)
+    )
+
+
+    annual_data = (
+        annual_data
+        .groupby(
+            "Year number"
+        )
+        .agg(
+            {
+                "Annual property growth":
+                    "first",
+
+                "Mortgage rate":
+                    "last",
+            }
+        )
+        .reset_index()
+    )
+
+
+    annual_data.columns = [
+        "Year",
+        "Property growth (%)",
+        "Mortgage rate (%)",
+    ]
+
+
+    st.dataframe(
+        annual_data,
+        use_container_width=True,
+        hide_index=True
+    )
 
 
 # ============================================================
@@ -1341,15 +1684,57 @@ with st.expander(
 
     st.markdown(
         """
-- Both options start with the same financial resources.
-- The buyer uses cash for the deposit, SDLT, purchase fees and renovations.
-- The renter invests that same upfront amount instead.
-- Each month, the renter's portfolio earns the selected investment return.
-- If owning costs more than renting in a month, the renter invests the difference.
-- If renting costs more, the difference is withdrawn from the renter's portfolio.
-- Mortgage principal is not treated as an unrecoverable cost. It increases the buyer's equity by reducing the mortgage balance.
-- At the end of the holding period, the buyer sells the property, pays selling costs and clears the remaining mortgage.
-- The final comparison is buyer net sale equity versus renter investment portfolio.
+### Buying
+
+The buyer pays:
+
+- the deposit
+- SDLT
+- purchase fees
+- renovations
+- monthly mortgage payments
+- maintenance
+- service charges
+- ground rent or estate charges
+- remortgage fees
+- any major works
+
+Mortgage principal is **not treated as money lost**. It reduces the outstanding
+mortgage and therefore increases the buyer's equity.
+
+At the end of the chosen holding period, the house is sold. Selling costs and the
+remaining mortgage are deducted from the sale proceeds.
+
+
+### Renting
+
+The renter starts with the exact amount of cash that would have been required
+upfront to purchase the property.
+
+That money is invested.
+
+Every month:
+
+- if owning costs more than renting, the renter invests the difference
+- if renting costs more than owning, the difference is withdrawn from the portfolio
+
+The portfolio compounds at the selected alternative investment return.
+
+
+### Market scenarios
+
+When a predefined scenario is selected, the model changes:
+
+- property-price growth
+- the assumed mortgage rate after the fixed period
+- rent growth
+- service-charge growth
+
+The crash scenario is modelled as an initial shock followed by recovery, rather
+than assuming house prices decline indefinitely.
+
+The property-growth sensitivity section separately tests constant annual growth
+rates so you can see how dependent the result is on the property market.
 """
     )
 
@@ -1359,9 +1744,8 @@ with st.expander(
 # ============================================================
 
 st.caption(
-    "Educational model only. It simplifies taxes, investment "
-    "returns, mortgage products, insurance, opportunity costs "
-    "and individual circumstances. Check current HMRC rules "
-    "and actual mortgage / transaction costs before making a "
-    "financial decision."
+    "Educational model only. It simplifies taxes, investment returns, "
+    "mortgage products, insurance, opportunity costs and individual "
+    "circumstances. Check current tax rules and actual mortgage and "
+    "transaction costs before making a financial decision."
 )
