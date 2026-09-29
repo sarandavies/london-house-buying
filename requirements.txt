@@ -2,3 +2,4 @@ streamlit
 numpy
 numpy-financial
 pandas
+plotly

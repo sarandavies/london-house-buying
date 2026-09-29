@@ -2,6 +2,10 @@ import streamlit as st
 import numpy as np
 import numpy_financial as npf
 import pandas as pd
+import json
+from urllib.request import Request, urlopen
+import plotly.express as px
+import plotly.graph_objects as go
 
 
 # ============================================================
@@ -1352,6 +1356,915 @@ with st.expander(
 - The final comparison is buyer net sale equity versus renter investment portfolio.
 """
     )
+
+
+# ============================================================
+# 9. LONDON BOROUGH MARKET EXPLORER
+# ============================================================
+
+st.header("9. London borough house vs flat explorer")
+
+st.markdown(
+    """
+Explore how **houses and flats have performed across London boroughs** using the
+official UK House Price Index. Hover over the map for the headline numbers and
+select a borough to inspect the full price path.
+
+For the purposes of this view, **"houses" is an equal-weighted composite of the
+detached, semi-detached and terraced UK HPI series**. That keeps the comparison
+consistent across boroughs without pretending there is an official single
+"house excluding flats" HPI series.
+"""
+)
+
+
+UK_HPI_URL = (
+    "https://publicdata.landregistry.gov.uk/market-trend-data/"
+    "house-price-index-data/UK-HPI-full-file-2026-07.csv"
+)
+
+LONDON_BOROUGH_GEOJSON_URL = (
+    "https://gis.london.gov.uk/arcgis/rest/services/apps/"
+    "cultural_infrastructure_map_context_layers/MapServer/2/query"
+    "?where=1%3D1&outFields=name%2Cgss_code&outSR=4326&f=geojson"
+)
+
+
+@st.cache_data(ttl=60 * 60 * 12, show_spinner=False)
+def load_london_borough_market_data():
+    """
+    Download the official UK HPI full file and keep the 32 London boroughs.
+    City of London is excluded because it is not a London borough and has a
+    very small, atypical residential market.
+    """
+
+    hpi = pd.read_csv(UK_HPI_URL)
+
+    hpi["Date"] = pd.to_datetime(
+        hpi["Date"],
+        dayfirst=True,
+        errors="coerce"
+    )
+
+    london = hpi.loc[
+        hpi["AreaCode"].astype(str).str.startswith("E090000")
+    ].copy()
+
+    london = london.loc[
+        london["AreaCode"] != "E09000001"
+    ].copy()
+
+    house_index_cols = [
+        "DetachedIndex",
+        "SemiDetachedIndex",
+        "TerracedIndex",
+    ]
+
+    house_price_cols = [
+        "DetachedPrice",
+        "SemiDetachedPrice",
+        "TerracedPrice",
+    ]
+
+    london["HouseCompositeIndex"] = london[
+        house_index_cols
+    ].mean(axis=1, skipna=True)
+
+    london["HouseCompositePrice"] = london[
+        house_price_cols
+    ].mean(axis=1, skipna=True)
+
+    london = london.sort_values(
+        ["AreaCode", "Date"]
+    )
+
+    req = Request(
+        LONDON_BOROUGH_GEOJSON_URL,
+        headers={"User-Agent": "Mozilla/5.0"}
+    )
+
+    with urlopen(req, timeout=20) as response:
+        borough_geojson = json.load(response)
+
+    return london, borough_geojson
+
+
+def build_borough_snapshot(
+    london_df: pd.DataFrame,
+    years_back: int,
+):
+    latest_date = london_df["Date"].max()
+
+    target_start = (
+        latest_date
+        - pd.DateOffset(years=years_back)
+    )
+
+    rows = []
+
+    for area_code, group in london_df.groupby(
+        "AreaCode",
+        sort=False
+    ):
+        group = (
+            group
+            .dropna(
+                subset=[
+                    "Date",
+                    "HouseCompositeIndex",
+                    "FlatIndex",
+                ],
+                how="any"
+            )
+            .sort_values("Date")
+        )
+
+        if group.empty:
+            continue
+
+        end_row = group.iloc[-1]
+
+        start_pos = (
+            group["Date"]
+            .sub(target_start)
+            .abs()
+            .idxmin()
+        )
+
+        start_row = group.loc[
+            start_pos
+        ]
+
+        house_change = (
+            end_row["HouseCompositeIndex"]
+            / start_row["HouseCompositeIndex"]
+            - 1
+        ) * 100
+
+        flat_change = (
+            end_row["FlatIndex"]
+            / start_row["FlatIndex"]
+            - 1
+        ) * 100
+
+        rows.append(
+            {
+                "AreaCode":
+                    area_code,
+
+                "Borough":
+                    end_row["RegionName"],
+
+                "StartDate":
+                    start_row["Date"],
+
+                "EndDate":
+                    end_row["Date"],
+
+                "HouseChange":
+                    house_change,
+
+                "FlatChange":
+                    flat_change,
+
+                "HouseMinusFlat":
+                    house_change - flat_change,
+
+                "HousePrice":
+                    end_row["HouseCompositePrice"],
+
+                "FlatPrice":
+                    end_row["FlatPrice"],
+            }
+        )
+
+    return pd.DataFrame(
+        rows
+    )
+
+
+try:
+    london_hpi, london_geojson = (
+        load_london_borough_market_data()
+    )
+
+    latest_market_date = (
+        london_hpi["Date"].max()
+    )
+
+    market_col1, market_col2, market_col3 = (
+        st.columns(
+            [1.0, 1.25, 1.25]
+        )
+    )
+
+    with market_col1:
+        lookback_years = st.slider(
+            "Look-back period",
+            min_value=5,
+            max_value=20,
+            value=10,
+            step=1,
+            key="borough_lookback_years",
+        )
+
+    with market_col2:
+        map_metric_label = st.selectbox(
+            "Colour the map by",
+            [
+                "House price growth",
+                "Flat price growth",
+                "House minus flat growth",
+                "Latest flat price",
+                "Latest house benchmark",
+            ],
+            index=2,
+            key="borough_map_metric",
+        )
+
+    snapshot = build_borough_snapshot(
+        london_hpi,
+        lookback_years,
+    )
+
+    borough_names = sorted(
+        snapshot["Borough"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    default_borough = (
+        "Hackney"
+        if "Hackney" in borough_names
+        else borough_names[0]
+    )
+
+    with market_col3:
+        chosen_borough = st.selectbox(
+            "Detailed borough",
+            borough_names,
+            index=borough_names.index(
+                default_borough
+            ),
+            key="borough_detail_selector",
+        )
+
+    metric_map = {
+        "House price growth":
+            (
+                "HouseChange",
+                f"{lookback_years}-year house growth (%)",
+                "Blues",
+            ),
+
+        "Flat price growth":
+            (
+                "FlatChange",
+                f"{lookback_years}-year flat growth (%)",
+                "Oranges",
+            ),
+
+        "House minus flat growth":
+            (
+                "HouseMinusFlat",
+                "House minus flat growth (percentage points)",
+                "RdBu",
+            ),
+
+        "Latest flat price":
+            (
+                "FlatPrice",
+                "Latest average flat price (£)",
+                "Viridis",
+            ),
+
+        "Latest house benchmark":
+            (
+                "HousePrice",
+                "Latest house benchmark (£)",
+                "Viridis",
+            ),
+    }
+
+    metric_col, metric_title, color_scale = (
+        metric_map[
+            map_metric_label
+        ]
+    )
+
+    selected_row = snapshot.loc[
+        snapshot["Borough"]
+        == chosen_borough
+    ].iloc[0]
+
+    headline_1, headline_2, headline_3, headline_4 = (
+        st.columns(4)
+    )
+
+    headline_1.metric(
+        f"{lookback_years}y house growth",
+        f"{selected_row['HouseChange']:+.1f}%"
+    )
+
+    headline_2.metric(
+        f"{lookback_years}y flat growth",
+        f"{selected_row['FlatChange']:+.1f}%"
+    )
+
+    headline_3.metric(
+        "House vs flat gap",
+        f"{selected_row['HouseMinusFlat']:+.1f} pp"
+    )
+
+    headline_4.metric(
+        "Latest average flat price",
+        (
+            f"£{selected_row['FlatPrice']:,.0f}"
+            if pd.notna(
+                selected_row["FlatPrice"]
+            )
+            else "n/a"
+        )
+    )
+
+    map_col, detail_col = st.columns(
+        [1.18, 1.0]
+    )
+
+    with map_col:
+        st.subheader(
+            "Borough heat map"
+        )
+
+        map_df = snapshot.copy()
+
+        map_df["HouseChangeText"] = (
+            map_df["HouseChange"]
+            .map(
+                lambda x:
+                f"{x:+.1f}%"
+                if pd.notna(x)
+                else "n/a"
+            )
+        )
+
+        map_df["FlatChangeText"] = (
+            map_df["FlatChange"]
+            .map(
+                lambda x:
+                f"{x:+.1f}%"
+                if pd.notna(x)
+                else "n/a"
+            )
+        )
+
+        map_df["GapText"] = (
+            map_df["HouseMinusFlat"]
+            .map(
+                lambda x:
+                f"{x:+.1f} pp"
+                if pd.notna(x)
+                else "n/a"
+            )
+        )
+
+        map_df["HousePriceText"] = (
+            map_df["HousePrice"]
+            .map(
+                lambda x:
+                f"£{x:,.0f}"
+                if pd.notna(x)
+                else "n/a"
+            )
+        )
+
+        map_df["FlatPriceText"] = (
+            map_df["FlatPrice"]
+            .map(
+                lambda x:
+                f"£{x:,.0f}"
+                if pd.notna(x)
+                else "n/a"
+            )
+        )
+
+        map_fig = px.choropleth_mapbox(
+            map_df,
+            geojson=london_geojson,
+            locations="AreaCode",
+            featureidkey="properties.gss_code",
+            color=metric_col,
+            hover_name="Borough",
+            custom_data=[
+                "AreaCode",
+                "HouseChangeText",
+                "FlatChangeText",
+                "GapText",
+                "HousePriceText",
+                "FlatPriceText",
+            ],
+            color_continuous_scale=color_scale,
+            mapbox_style="carto-positron",
+            center={
+                "lat": 51.5074,
+                "lon": -0.1278,
+            },
+            zoom=8.4,
+            opacity=0.72,
+            labels={
+                metric_col:
+                    metric_title,
+            },
+        )
+
+        if (
+            map_metric_label
+            == "House minus flat growth"
+        ):
+            gap_max = max(
+                1.0,
+                float(
+                    np.nanmax(
+                        np.abs(
+                            map_df[
+                                "HouseMinusFlat"
+                            ]
+                        )
+                    )
+                )
+            )
+
+            map_fig.update_coloraxes(
+                cmin=-gap_max,
+                cmax=gap_max,
+                cmid=0,
+            )
+
+        map_fig.update_traces(
+            marker_line_width=0.7,
+            marker_line_color="white",
+            hovertemplate=(
+                "<b>%{hovertext}</b><br>"
+                "House growth: %{customdata[1]}<br>"
+                "Flat growth: %{customdata[2]}<br>"
+                "Gap: %{customdata[3]}<br>"
+                "Latest house benchmark: %{customdata[4]}<br>"
+                "Latest flat price: %{customdata[5]}"
+                "<extra></extra>"
+            )
+        )
+
+        map_fig.update_layout(
+            margin=dict(
+                l=0,
+                r=0,
+                t=10,
+                b=0,
+            ),
+            height=600,
+            coloraxis_colorbar=dict(
+                title=metric_title,
+            ),
+        )
+
+        map_event = st.plotly_chart(
+            map_fig,
+            use_container_width=True,
+            key="borough_heatmap_chart",
+            on_select="rerun",
+            selection_mode="points",
+        )
+
+        clicked_code = None
+
+        try:
+            selected_points = (
+                map_event.selection.points
+            )
+
+            if selected_points:
+                point = selected_points[0]
+
+                clicked_code = point.get(
+                    "location"
+                )
+
+                if (
+                    clicked_code is None
+                    and point.get(
+                        "customdata"
+                    )
+                ):
+                    clicked_code = (
+                        point[
+                            "customdata"
+                        ][0]
+                    )
+
+        except Exception:
+            clicked_code = None
+
+        if clicked_code:
+            clicked_match = (
+                snapshot.loc[
+                    snapshot[
+                        "AreaCode"
+                    ]
+                    == clicked_code,
+                    "Borough"
+                ]
+            )
+
+            if not clicked_match.empty:
+                chosen_borough = (
+                    clicked_match.iloc[0]
+                )
+
+        st.caption(
+            "Hover for borough-level figures. Click a borough "
+            "to drive the detail chart; you can also use the "
+            "borough selector above."
+        )
+
+    with detail_col:
+        st.subheader(
+            f"{chosen_borough} over time"
+        )
+
+        borough_history = (
+            london_hpi.loc[
+                london_hpi[
+                    "RegionName"
+                ]
+                == chosen_borough
+            ]
+            .dropna(
+                subset=[
+                    "Date",
+                    "HouseCompositeIndex",
+                    "FlatIndex",
+                ]
+            )
+            .sort_values("Date")
+            .copy()
+        )
+
+        detail_cutoff = (
+            borough_history[
+                "Date"
+            ].max()
+            - pd.DateOffset(
+                years=lookback_years
+            )
+        )
+
+        borough_history = (
+            borough_history.loc[
+                borough_history[
+                    "Date"
+                ]
+                >= detail_cutoff
+            ]
+            .copy()
+        )
+
+        first_valid = (
+            borough_history.iloc[0]
+        )
+
+        borough_history[
+            "House — indexed to 100"
+        ] = (
+            borough_history[
+                "HouseCompositeIndex"
+            ]
+            / first_valid[
+                "HouseCompositeIndex"
+            ]
+            * 100
+        )
+
+        borough_history[
+            "Flat — indexed to 100"
+        ] = (
+            borough_history[
+                "FlatIndex"
+            ]
+            / first_valid[
+                "FlatIndex"
+            ]
+            * 100
+        )
+
+        detail_fig = go.Figure()
+
+        detail_fig.add_trace(
+            go.Scatter(
+                x=borough_history[
+                    "Date"
+                ],
+                y=borough_history[
+                    "House — indexed to 100"
+                ],
+                mode="lines",
+                name="Houses",
+                hovertemplate=(
+                    "%{x|%b %Y}<br>"
+                    "Houses: %{y:.1f}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+        detail_fig.add_trace(
+            go.Scatter(
+                x=borough_history[
+                    "Date"
+                ],
+                y=borough_history[
+                    "Flat — indexed to 100"
+                ],
+                mode="lines",
+                name="Flats",
+                hovertemplate=(
+                    "%{x|%b %Y}<br>"
+                    "Flats: %{y:.1f}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+        detail_fig.add_hline(
+            y=100,
+            line_dash="dot",
+            line_width=1,
+        )
+
+        detail_fig.update_layout(
+            height=430,
+            margin=dict(
+                l=10,
+                r=10,
+                t=10,
+                b=10,
+            ),
+            yaxis_title=(
+                "Price index "
+                "(start of selected period = 100)"
+            ),
+            xaxis_title=None,
+            legend_title=None,
+            hovermode="x unified",
+        )
+
+        st.plotly_chart(
+            detail_fig,
+            use_container_width=True,
+            key="borough_detail_chart",
+        )
+
+        detail_prices = (
+            borough_history[
+                [
+                    "Date",
+                    "HouseCompositePrice",
+                    "FlatPrice",
+                ]
+            ]
+            .rename(
+                columns={
+                    "HouseCompositePrice":
+                        "House benchmark",
+                    "FlatPrice":
+                        "Flat",
+                }
+            )
+            .set_index(
+                "Date"
+            )
+        )
+
+        st.caption(
+            "The line chart rebases both property-type indices "
+            "to 100 at the start of the selected period, so the "
+            "relative performance is directly comparable."
+        )
+
+        with st.expander(
+            "Show average-price path"
+        ):
+            st.line_chart(
+                detail_prices
+            )
+
+    st.subheader(
+        "House vs flat performance across boroughs"
+    )
+
+    scatter_fig = px.scatter(
+        snapshot,
+        x="FlatChange",
+        y="HouseChange",
+        hover_name="Borough",
+        custom_data=[
+            "HouseMinusFlat",
+            "HousePrice",
+            "FlatPrice",
+        ],
+        labels={
+            "FlatChange":
+                f"Flat growth over {lookback_years} years (%)",
+            "HouseChange":
+                f"House growth over {lookback_years} years (%)",
+        },
+    )
+
+    low = float(
+        np.nanmin(
+            snapshot[
+                [
+                    "FlatChange",
+                    "HouseChange",
+                ]
+            ].to_numpy()
+        )
+    )
+
+    high = float(
+        np.nanmax(
+            snapshot[
+                [
+                    "FlatChange",
+                    "HouseChange",
+                ]
+            ].to_numpy()
+        )
+    )
+
+    padding = max(
+        2.0,
+        (high - low) * 0.08,
+    )
+
+    scatter_fig.add_shape(
+        type="line",
+        x0=low - padding,
+        y0=low - padding,
+        x1=high + padding,
+        y1=high + padding,
+        line=dict(
+            dash="dash",
+            width=1,
+        ),
+    )
+
+    highlight = snapshot.loc[
+        snapshot["Borough"]
+        == chosen_borough
+    ]
+
+    scatter_fig.add_trace(
+        go.Scatter(
+            x=highlight[
+                "FlatChange"
+            ],
+            y=highlight[
+                "HouseChange"
+            ],
+            mode="markers+text",
+            text=highlight[
+                "Borough"
+            ],
+            textposition="top center",
+            name="Selected borough",
+            marker=dict(
+                size=14,
+                symbol="diamond",
+            ),
+            hovertemplate=(
+                "<b>%{text}</b><br>"
+                "Flat growth: %{x:+.1f}%<br>"
+                "House growth: %{y:+.1f}%"
+                "<extra></extra>"
+            ),
+        )
+    )
+
+    scatter_fig.update_traces(
+        selector=dict(
+            mode="markers"
+        ),
+        marker=dict(
+            size=9,
+            opacity=0.78,
+        ),
+    )
+
+    scatter_fig.update_layout(
+        height=500,
+        margin=dict(
+            l=10,
+            r=10,
+            t=10,
+            b=10,
+        ),
+        showlegend=False,
+    )
+
+    st.plotly_chart(
+        scatter_fig,
+        use_container_width=True,
+        key="borough_scatter_chart",
+    )
+
+    ranking = (
+        snapshot[
+            [
+                "Borough",
+                "HouseChange",
+                "FlatChange",
+                "HouseMinusFlat",
+                "HousePrice",
+                "FlatPrice",
+            ]
+        ]
+        .sort_values(
+            "HouseMinusFlat",
+            ascending=False,
+        )
+        .copy()
+    )
+
+    ranking = ranking.rename(
+        columns={
+            "HouseChange":
+                f"House growth {lookback_years}y (%)",
+            "FlatChange":
+                f"Flat growth {lookback_years}y (%)",
+            "HouseMinusFlat":
+                "House minus flat (pp)",
+            "HousePrice":
+                "Latest house benchmark (£)",
+            "FlatPrice":
+                "Latest flat price (£)",
+        }
+    )
+
+    st.dataframe(
+        ranking,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            f"House growth {lookback_years}y (%)":
+                st.column_config.NumberColumn(
+                    format="%.1f%%"
+                ),
+
+            f"Flat growth {lookback_years}y (%)":
+                st.column_config.NumberColumn(
+                    format="%.1f%%"
+                ),
+
+            "House minus flat (pp)":
+                st.column_config.NumberColumn(
+                    format="%+.1f"
+                ),
+
+            "Latest house benchmark (£)":
+                st.column_config.NumberColumn(
+                    format="£%,.0f"
+                ),
+
+            "Latest flat price (£)":
+                st.column_config.NumberColumn(
+                    format="£%,.0f"
+                ),
+        },
+    )
+
+    st.caption(
+        f"Source: HM Land Registry / ONS UK House Price Index. "
+        f"Latest observation loaded: "
+        f"{latest_market_date:%B %Y}. "
+        "Recent UK HPI estimates are provisional and may be revised."
+    )
+
+except Exception as market_error:
+    st.warning(
+        "The London borough explorer could not load its external "
+        "market data right now. The rest of the calculator is "
+        "unaffected."
+    )
+
+    with st.expander(
+        "Technical detail"
+    ):
+        st.code(
+            str(
+                market_error
+            )
+        )
 
 
 # ============================================================
